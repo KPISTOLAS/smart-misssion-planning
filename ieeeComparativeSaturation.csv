@@ -1,0 +1,4 @@
+planner,saturation_numUAV_est
+priority,5
+greedy,5
+decentralized_greedy,7

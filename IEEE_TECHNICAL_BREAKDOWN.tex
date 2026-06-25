@@ -1,0 +1,130 @@
+% IEEE-style technical breakdown for adaptive IoT-aware multi-UAV CPP (PHM).
+% Compile with pdfLaTeX; requires amsmath, amssymb.
+
+\documentclass[conference]{IEEEtran}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{Adaptive Plant-Health Monitoring with IoT-Informed Multi-UAV Coverage Path Planning}
+
+\author{
+\IEEEauthorblockN{Research Framework (MATLAB)}%
+\IEEEauthorblockA{\textit{Multi-UAV CPP / IPP synthesis with benchmarking}}%
+}
+
+\maketitle
+
+\begin{abstract}
+This memorandum formalizes an adaptive forest monitoring scenario wherein a heterogeneous fleet of rotary-wing unmanned aerial vehicles (UAVs) exploits a digital plant-health heatmap fused from ground IoT cues. Unlike geometric lawn-mowing coverage, mission objectives emphasize revisitation of high-stress cells ($H \ge 3$) while respecting terrain-induced energetics and inter-agent safety margins. The novelty lies in coupling informative weights derived from health, epistemic uncertainty, and obstacle proximity with a hybrid planner that mixes weighted workload partitioning (DARP-inspired decomposition) with stitched receding-horizon A* segments over elevation-aware edge costs. Companion MATLAB modules instantiate terrain synthesis, planner comparison against greedy and boustrophedon baselines, and IEEE-oriented KPI analytics including area coverage rate (ACR), high-priority coverage (HPC), energy-to-information ratio, and cross-track RMSE versus a canonical sweep reference.
+\end{abstract}
+
+\section{Scenario and Grid Model}
+Let $\mathcal{G}=\{1,\dots,N\}\times\{1,\dots,M\}$ denote a uniform planar decomposition with cell spacing $\Delta$. Each cell $i\in\mathcal{G}$ carries discrete stress $H_i\in\{0,\dots,4\}$, sensing uncertainty $\sigma_i\in(0,1]$, obstacle occupancy $b_i\in\{0,1\}$, and obstacle proximity score $O_i\in[0,1]$ (high near obstacles). Traversable cells satisfy $b_i=0$. Terrain elevation $z_i\in\mathbb{R}$ affects climb penalties and altitude-dependent power draw.
+
+\section{Priority Functional}
+The planner consumes a scalar IoT fusion weight
+\begin{equation}
+W_i = \alpha H_i + \beta \sigma_i - \gamma O_i,
+\label{eq:weight}
+\end{equation}
+with nonnegative coefficients $\alpha,\beta,\gamma$. High-priority targets emphasize stressed vegetation ($H_i\ge \tau$), uncertain telemetry ($\sigma_i$), while penalizing proximity to collision hazards.
+
+\section{Multi-objective Problem Statement}
+Let $\mathcal{U}=\{1,\dots,U\}$ index UAVs executing discrete-time trajectories $\mathbf{p}_u(t)\in\mathcal{G}$ with corresponding continuous velocities $v_u(t)$ and flight altitudes $h_u(t)=h_{\mathrm{AGL}}+z(\mathbf{p}_u(t))$. Denote $\mathcal{V}(t)$ the set of cells visited by any agent up to time $t$, $A_i$ the planar cell area, and $I_i(t)$ an information increment when cell $i$ is observed with diminishing novelty encoded via $\sigma_i$. We pursue Pareto refinement of three competing objectives:
+\begin{enumerate}
+\item maximize cumulative coverage utility $\displaystyle J_{\mathrm{cov}}=\sum_{i\in\mathcal{V}(T)} \Psi(W_i) A_i$ with monotone $\Psi$ (identity in implementation);
+\item minimize energy $\displaystyle J_{\mathrm{ene}}=\sum_{u\in\mathcal{U}}\int_0^T P(v_u,h_u)\,\mathrm{d}t$ for a nonnegative powerModel $P$;
+\item maximize terminal information $\displaystyle J_{\mathrm{inf}}=\sum_{t\le T}\sum_u \eta(\mathbf{p}_u(t))$, $\eta=\sigma_i$ on first visitation of $i$.
+\end{enumerate}
+
+\section{Aggregated Cost Functional}
+For nonnegative weights $\lambda_1,\lambda_2,\lambda_3$, compose a weighted-sum surrogate amenable to decentralized replanning:
+\begin{equation}
+\begin{aligned}
+J &= -\lambda_1 \underbrace{\frac{1}{T}\sum_{t}\dot{A}_{\mathrm{cov}}(t)}_{\mathrm{ACR}} +\lambda_2 \underbrace{\frac{J_{\mathrm{ene}}}{\max(\varepsilon,J_{\mathrm{inf}})}}_{\mathrm{energy\text{-}to\text{-}information}}} -\lambda_3 J_{\mathrm{inf}}\\
+  &\approx -\lambda_1\,\mathrm{ACR}+\lambda_2\,\mathrm{EGI}-\lambda_3 J_{\mathrm{inf}},
+\end{aligned}
+\label{eq:cost}
+\end{equation}
+where $\dot{A}_{\mathrm{cov}}$ approximates instantaneous newly covered area rate (m$^2$/s) and $\mathrm{EGI}$ denotes energy gain inefficiency (Joules per unit accumulated $\sigma$-weighted novelty).
+
+\section{Power and Energy Model}
+Adopting a parsimonious multicopter drag-and-induced-power surrogate,
+\begin{equation}
+P(v,h) = P_0 + k_v v^3 + k_h h,\qquad P\ge P_{\min},
+\label{eq:power}
+\end{equation}
+with calibrated constants $\{P_0,k_v,k_h,P_{\min}\}$ mapping commanded horizontal speed $v$ and absolute altitude $h$ to electrical shaft/load power.
+
+\section{Constraints}
+\subsection{Kinematics}
+Grid-adjacent motion respects $\|\mathbf{p}_u(t{+}1)-\mathbf{p}_u(t)\|_\infty\le 1$, translating to speed bound $v_u\le v_{\max}$ under spacing $\Delta$ and sampling period $\Delta t$.
+
+\subsection{Collision Avoidance}
+Pairwise safety demands $\|\mathbf{x}_u(t)-\mathbf{x}_{u'}(t)\|_2\ge d_{\mathrm{safe}}$ with $\mathbf{x}$ denoting metric embeddings $(col\cdot\Delta,\ row\cdot\Delta)$.
+
+\subsection{Obstacle Feasibility}
+$\mathbf{p}_u(t)\in\mathcal{F}=\{i\in\mathcal{G}:b_i=0\}$ for all $t,u$.
+
+\section{Planner Synopsis}
+\subsection{Baseline Lawnmower}
+Deterministic serpentine enumeration of $\mathcal{F}$ partitioned across UAVs.
+
+\subsection{Baseline Greedy}
+Myopic eight-connected expansion maximizing local $W$ plus coverage novelty bonuses.
+
+\subsection{Priority Hybrid}
+Weighted Lloyd partitioning on coordinates of $\{i:H_i\ge\tau\}$ using replication proportional to $W_i$, followed by weighted nearest-neighbor goal sequencing and elevation-aware A* stitching; optional bounded-window shortcuts emulate receding-horizon refinement.
+
+\section{Evaluation Protocol}
+\subsection{Test Matrix}
+Monte Carlo seeds sweep \textbf{terrains} $\in\{\mathrm{flat},\mathrm{hilly},\mathrm{ridge}\}$ crossed with \textbf{tree densities} $\in\{\mathrm{low},\mathrm{medium},\mathrm{high}\}$ producing obstacle fields of increasing occupancy.
+
+\subsection{Metrics}
+\begin{align}
+\mathrm{ACR} &= \frac{1}{T}\sum_{t}\frac{A_{\mathrm{new}}(t)}{\Delta t}\quad [\mathrm{m}^2/\mathrm{s}],\\
+\mathrm{HPC} &= 100\cdot\frac{\left|\{i:H_i\ge\tau\}\cap\mathcal{V}(T)\right|}{\left|\{i:H_i\ge\tau\}\cap\mathcal{F}\right|}\quad [\%],\\
+\mathrm{EGI} &= \frac{J_{\mathrm{ene}}}{\sum_i \sigma_i\,\mathbb{I}_{\mathrm{first\,visit}}(i)}\quad [\mathrm{J}],\\
+\mathrm{RMSE}_{\mathrm{ct}} &= \sqrt{\frac{1}{T}\sum_t d^2(\mathbf{x}_1(t),\mathcal{L}_{\mathrm{lm}})}\quad [\mathrm{m}],\\
+\mathrm{EPB} &= \frac{J_{\mathrm{ene}}}{\sum_i b_i\,\mathbb{I}_{\mathrm{first\,visit}}(i)}\quad [\mathrm{J/bit}],
+\end{align}
+where $\mathcal{L}_{\mathrm{lm}}$ is the polyline of the lawnmower reference for UAV $1$, and $b_i$ denotes an expected information contribution in bits (Gaussian surrogate).
+
+\section{Constrained Optimum for Precision Agriculture}
+For regulatory-style crop stressing audits one reports mission statistics at coverage quorum $\tau$ (e.g.\ $80\%$ HPC). The constrained planning surrogate is
+\begin{equation}
+f^\star = \min_{\mathbf{x}} E_{\mathrm{total}}(\mathbf{x})\quad\text{s.t.}\quad \mathrm{HPC}(\mathbf{x})\geq \tau,
+\end{equation}
+where $\mathbf{x}$ stacks planner tunings (fusion weights, capacitated Voronoi rounds, sortie energy caps). Empirically compare $f^\star$ against a \emph{fair} lawnmower baseline that integrates energy only until the same $\mathrm{HPC}$ threshold is met (\texttt{MissionSim.stopHpcPct}), while optionally annotating full-grid lawnmower energy for operational context. Multi-objective analysis overlays the unconstrained energy--information Pareto hull among feasible designs.
+
+\section{Extensions (Active Sensing, Budgeted Sorties, Heterogeneous Decomposition)}
+\subsection{GP Surrogate and Expected Information}
+Interpreting $\sigma_i$ as a marginal posterior standard deviation on latent health, an approximate entropy reduction for a noisy Gaussian observation with noise variance $\sigma_n^2$ is
+\begin{equation}
+\mathrm{EIG}_i \approx \tfrac{1}{2}\log_2\!\left(1+\sigma_i^2/\sigma_n^2\right)\ [\mathrm{bits}].
+\end{equation}
+High-$H$ actionable cells prioritize $\mathrm{EIG}_i$ for active sensing blends beyond linear $W$.
+
+\subsection{Mission Objective Under Sortie Budgets}
+Let $\mathcal{S}_k$ index sorties with recharge inserts of duration $\Delta t_{\mathrm{rc}}$. Minimize total clock time $\sum_k T_k + \Delta t_{\mathrm{rc}}$ subject to per-sortie fleet energy caps $\bar{E}_k$ until $\mathrm{HPC}\ge 90\%$.
+
+\subsection{Three-Axis Power Split}
+\begin{equation}
+P = \underbrace{P_0(1{+}\kappa_p v^2)}_{\mathrm{blade/induced}} + \underbrace{k_h |v|^3 + k_a v^2}_{\mathrm{horizontal}} + \underbrace{k_{\uparrow}(\dot{z}_+)^2 + k_{\downarrow}(\dot{z}_-)^2}_{\mathrm{terrain}} + k_z h,
+\end{equation}
+with terrain rate $\dot{z}$ coupling uphill asymmetry.
+
+\subsection{Heterogeneous Spatial Decomposition}
+Capacitated Voronoi iterations partition targets across UAV seeds using workload feedback $\lambda_u$, reducing contention versus unstructured hotspots-only clustering.
+
+\section{Implementation Map}
+\texttt{MapGenerator.m} synthesizes $(z,H,\sigma,b,O,W)$ plus GP/EIG attachments (\texttt{GPInformationField.m}); \texttt{PriorityPlanner.m} implements heuristic/EIG blends with Voronoi or Lloyd decomposition and optional Chaikin smoothing (\texttt{PathSmoother.m}); \texttt{BatteryAwareOrchestrator.m} executes multi-pass missions; \texttt{MissionSim.m} integrates the split power law, bit budgets, optional intrasortie IoT drift; \texttt{Analytics.m} adds EPB aggregates; \texttt{runParetoSensitivity.m} / \texttt{runBatteryAwarePHM.m} illustrate sweeps; \texttt{runParetoEnergyInformation.m} renders the $\mathrm{HPC}\!\geq\!\tau$ constrained energy--information figure; \texttt{runAdaptivePHM\_Benchmark.m} retains the $3\times3$ matrix.
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{00}
+\bibitem{placeholder}Framework references should cite domain CPP, DARP, IPP, and field robotics trials aligned with project bibliography policies.
+\end{thebibliography}
+
+\end{document}
