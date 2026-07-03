@@ -7,7 +7,7 @@ addpath(projRoot);
 N  = 54;
 M  = 72;
 dx = 18;          % meters per cell edge
-numUAV = 1;       % single lead drone flying into the field
+numUAV = 3;       % coordinated fleet ingressing the field
 
 opts = struct('terrain', 'hilly', 'treeDensity', 'low', ...
     'alpha', 1.0, 'beta', 0.55, 'gamma', 0.32, 'rngSeed', 8148);
