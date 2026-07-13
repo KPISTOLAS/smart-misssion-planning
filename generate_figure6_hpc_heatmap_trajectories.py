@@ -3,27 +3,32 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon as MplPolygon
-from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 from shapely.geometry import Point, Polygon
 
 
-def create_synthetic_boundary(rng, center=(10.0, 8.0), mean_radius=6.0, n_vertices=24):
-    """Create a realistic irregular polygon in local x/y coordinates (km)."""
+def create_synthetic_boundary(rng, center, radius_x, radius_y, n_vertices=24):
+    """Create a realistic irregular polygon in local x/y coordinates (km).
+
+    The radial perturbations are expressed as unit fractions so the boundary
+    shape stays self-similar at any physical scale, and independent
+    ``radius_x``/``radius_y`` let the field be elongated to match the aspect of
+    the study area (so it fills the frame instead of floating in whitespace).
+    """
     angles = np.linspace(0, 2 * np.pi, n_vertices, endpoint=False)
     angles += rng.normal(0.0, 0.06, size=n_vertices)
     angles = np.sort(angles)
 
     harmonic = (
-        0.55 * np.sin(2 * angles + 0.7)
-        + 0.40 * np.sin(3 * angles - 1.1)
-        + 0.25 * np.sin(5 * angles + 0.3)
+        0.092 * np.sin(2 * angles + 0.7)
+        + 0.067 * np.sin(3 * angles - 1.1)
+        + 0.042 * np.sin(5 * angles + 0.3)
     )
-    random_component = rng.normal(0.0, 0.35, size=n_vertices)
-    radii = mean_radius + harmonic + random_component
-    radii = np.clip(radii, mean_radius * 0.62, mean_radius * 1.42)
+    random_component = rng.normal(0.0, 0.058, size=n_vertices)
+    unit_radii = np.clip(1.0 + harmonic + random_component, 0.62, 1.42)
 
-    x = center[0] + radii * np.cos(angles)
-    y = center[1] + radii * np.sin(angles)
+    x = center[0] + radius_x * unit_radii * np.cos(angles)
+    y = center[1] + radius_y * unit_radii * np.sin(angles)
     poly = Polygon(np.column_stack([x, y])).buffer(0)
     if not poly.is_valid:
         raise ValueError("Failed to create a valid synthetic polygon boundary.")
@@ -46,13 +51,15 @@ def sample_points_in_polygon(poly, n_points, rng):
     return np.array(points)
 
 
-def build_grid(poly, nx=40, ny=40):
-    """Build regular grid and inside-mask for cell centers."""
-    minx, miny, maxx, maxy = poly.bounds
-    pad_x = 0.03 * (maxx - minx)
-    pad_y = 0.03 * (maxy - miny)
-    minx, maxx = minx - pad_x, maxx + pad_x
-    miny, maxy = miny - pad_y, maxy + pad_y
+def build_grid(poly, domain_bounds, nx, ny):
+    """Build a regular grid over an explicit domain and inside-mask for cell centers.
+
+    ``domain_bounds`` is ``(minx, miny, maxx, maxy)`` in km and defines the true
+    study-area extent, so the axes reflect the physical size of the mapped region
+    rather than the padded bounding box of the synthetic boundary. Using ``nx``/``ny``
+    equal to the real cell counts keeps every cell at the intended ground resolution.
+    """
+    minx, miny, maxx, maxy = domain_bounds
 
     x_edges = np.linspace(minx, maxx, nx + 1)
     y_edges = np.linspace(miny, maxy, ny + 1)
@@ -199,24 +206,57 @@ def main():
     seed = 20260506
     rng = np.random.default_rng(seed)
 
-    boundary = create_synthetic_boundary(rng)
-    x_edges, y_edges, xx, yy, inside = build_grid(boundary, nx=72, ny=72)
+    # Real study-area geometry (see runIEEEStudy.m / MapGenerator.build): a
+    # 54 x 72 grid of square cells at dx = 18 m. This fixes the axes to the true
+    # 0.972 km x 1.296 km footprint instead of the previous ~16 km x 14 km, which
+    # came from generating the synthetic boundary at an arbitrary km scale.
+    dx_m = 18.0
+    n_cells_x = 54
+    n_cells_y = 72
+    domain_w = n_cells_x * dx_m / 1000.0  # 0.972 km
+    domain_h = n_cells_y * dx_m / 1000.0  # 1.296 km
+    domain_bounds = (0.0, 0.0, domain_w, domain_h)
+
+    # Elongate the field to match the portrait study area so it fills the frame,
+    # while keeping a margin so launch markers placed just outside the boundary
+    # still fall within the plotted domain.
+    boundary_center = (domain_w / 2.0, domain_h / 2.0)
+    boundary_radius_x = 0.31 * domain_w
+    boundary_radius_y = 0.315 * domain_h
+
+    boundary = create_synthetic_boundary(
+        rng, boundary_center, boundary_radius_x, boundary_radius_y
+    )
+    x_edges, y_edges, xx, yy, inside = build_grid(
+        boundary, domain_bounds, nx=n_cells_x, ny=n_cells_y
+    )
 
     hotspot_centers = sample_points_in_polygon(boundary, n_points=5, rng=rng)
     hotspot_amps = rng.uniform(0.8, 1.4, size=5)
+    # Hotspot widths scale with the boundary size (fractions of its radius) so the
+    # heatmap keeps the same visual character at the corrected physical scale.
     hotspot_sigmas = np.column_stack(
-        [rng.uniform(0.85, 1.55, size=5), rng.uniform(0.75, 1.45, size=5)]
+        [
+            rng.uniform(0.142, 0.258, size=5) * boundary_radius_x,
+            rng.uniform(0.125, 0.242, size=5) * boundary_radius_y,
+        ]
     )
     base_field = gaussian_field(xx, yy, hotspot_centers, hotspot_amps, hotspot_sigmas)
 
-    low_freq_trend = 0.15 * np.sin(0.45 * xx) * np.cos(0.38 * yy)
+    # Low-frequency trend expressed in cycles across the domain so it renders the
+    # same gentle gradient regardless of the absolute domain size.
+    low_freq_trend = (
+        0.15
+        * np.sin(2 * np.pi * 0.85 * (xx - domain_bounds[0]) / domain_w)
+        * np.cos(2 * np.pi * 0.73 * (yy - domain_bounds[1]) / domain_h)
+    )
     noise = rng.normal(0.0, 0.05, size=xx.shape)
     hpc_raw = base_field + low_freq_trend + noise
     hpc_norm = normalize_inside(hpc_raw, inside)
     hpc_plot = smooth_field(hpc_norm, inside, sigma=1.0)
 
     inside_values = hpc_norm[inside]
-    threshold = np.quantile(inside_values, 0.95)
+    threshold = np.quantile(inside_values, 0.90)
     top_mask = inside & (hpc_norm >= threshold)
     top_points = np.column_stack([xx[top_mask], yy[top_mask]])
     top_scores = hpc_norm[top_mask]
@@ -229,12 +269,16 @@ def main():
     uav_linestyles = ["-", "-", "-", "--"]
 
     minx, miny, maxx, maxy = boundary.bounds
+    b_w = maxx - minx
+    b_h = maxy - miny
+    # Offsets are fractions of the boundary bounding box so the launch markers sit
+    # just outside the boundary while remaining inside the plotted study area.
     launch_points = np.array(
         [
-            [minx - 0.35, miny + 0.18 * (maxy - miny)],
-            [minx - 0.20, miny + 0.44 * (maxy - miny)],
-            [minx + 0.10, miny - 0.28],
-            [minx + 0.30 * (maxx - minx), miny - 0.35],
+            [minx - 0.029 * b_w, miny + 0.18 * b_h],
+            [minx - 0.017 * b_w, miny + 0.44 * b_h],
+            [minx + 0.008 * b_w, miny - 0.023 * b_h],
+            [minx + 0.30 * b_w, miny - 0.029 * b_h],
         ]
     )
     cell_w = np.abs(x_edges[1] - x_edges[0])
@@ -242,7 +286,7 @@ def main():
     spread_min_dist = 1.8 * np.sqrt(cell_w**2 + cell_h**2)
 
     display_points, _ = select_spread_points(
-        top_points, top_scores, n_select=45, min_dist=spread_min_dist
+        top_points, top_scores, n_select=30, min_dist=1.9 * spread_min_dist
     )
     targets, _ = select_spread_points(
         top_points, top_scores, n_select=n_uav, min_dist=4.0 * spread_min_dist
@@ -273,17 +317,19 @@ def main():
         {
             "font.family": "serif",
             "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
+            "mathtext.fontset": "stix",
             "font.size": 9,
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
-            "axes.labelsize": 9,
+            "axes.labelsize": 10,
+            "axes.linewidth": 0.7,
             "xtick.labelsize": 8.5,
             "ytick.labelsize": 8.5,
-            "legend.fontsize": 7.5,
+            "legend.fontsize": 8,
         }
     )
 
-    fig, ax = plt.subplots(figsize=(6.4, 5.2))
+    fig, ax = plt.subplots(figsize=(4.9, 5.3))
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
@@ -300,94 +346,61 @@ def main():
         zorder=1,
     )
 
+    # Study-area boundary with a soft white casing underneath for depth.
     bx, by = boundary.exterior.xy
+    boundary_xy = np.column_stack([bx, by])
+    ax.plot(
+        bx, by,
+        color="white",
+        linewidth=2.6,
+        alpha=0.85,
+        solid_joinstyle="round",
+        solid_capstyle="round",
+        zorder=3,
+    )
     boundary_patch = MplPolygon(
-        np.column_stack([bx, by]),
+        boundary_xy,
         closed=True,
         fill=False,
-        edgecolor="black",
-        linewidth=1.05,
+        edgecolor="#1A1A1A",
+        linewidth=1.3,
+        joinstyle="round",
         zorder=4,
     )
     ax.add_patch(boundary_patch)
     heat.set_clip_path(boundary_patch)
 
-    # Hide outside area by overlaying a white patch with a transparent hole effect via clipping.
-    outside_cover = MplPolygon(
-        np.column_stack([bx, by]),
-        closed=True,
-        facecolor="none",
-        edgecolor="none",
-    )
-    ax.add_patch(outside_cover)
-
+    # High-priority cells: white stars with a dark rim + halo so they read clearly
+    # over both the dark background and the bright hotspots.
     ax.scatter(
         display_points[:, 0],
         display_points[:, 1],
-        s=18,
-        c="#1A1A1A",
+        s=22,
+        c="white",
         marker="*",
-        linewidths=0.4,
-        edgecolors="white",
-        alpha=0.92,
+        linewidths=0.55,
+        edgecolors="#1A1A1A",
+        alpha=0.98,
         zorder=5,
-        label="Top-priority cells",
+        path_effects=[pe.withStroke(linewidth=1.3, foreground="#404040")],
     )
 
-    ax.scatter(
-        launch_points[:, 0],
-        launch_points[:, 1],
-        s=58,
-        c=uav_colors,
-        marker="^",
-        edgecolors="white",
-        linewidths=0.9,
-        zorder=6,
-        label="UAV launch points",
-    )
-
-    legend_lines = [
-        Line2D([0], [0], color="black", lw=1.05, label="Synthetic boundary"),
-        Line2D(
-            [0],
-            [0],
-            marker="*",
-            color="w",
-            markerfacecolor="#1A1A1A",
-            markeredgecolor="white",
-            markeredgewidth=0.5,
-            markersize=8,
-            linestyle="None",
-            label="Top-priority cells",
-        ),
-        Line2D(
-            [0],
-            [0],
-            marker="^",
-            color="w",
-            markerfacecolor="#888888",
-            markeredgecolor="white",
-            markeredgewidth=0.6,
-            markersize=7,
-            linestyle="None",
-            label="UAV launch points",
-        ),
-    ]
-
+    # UAV routes: colored strokes over a white halo for contrast on the heatmap.
     for i, path in enumerate(trajectories):
         ax.plot(
             path[:, 0],
             path[:, 1],
             color=uav_colors[i],
             linestyle=uav_linestyles[i],
-            linewidth=2.1,
-            alpha=0.92,
+            linewidth=1.9,
+            alpha=0.97,
+            solid_capstyle="round",
             zorder=7 + i,
-            path_effects=[pe.Stroke(linewidth=3.0, foreground="white"), pe.Normal()],
+            path_effects=[pe.Stroke(linewidth=3.1, foreground="white"), pe.Normal()],
         )
 
-        idx_a = int(0.78 * len(path))
-        idx_b = int(0.93 * len(path))
+        idx_a = int(0.86 * len(path))
+        idx_b = min(len(path) - 1, int(0.965 * len(path)))
         ax.annotate(
             "",
             xy=(path[idx_b, 0], path[idx_b, 1]),
@@ -395,73 +408,100 @@ def main():
             arrowprops=dict(
                 arrowstyle="-|>",
                 color=uav_colors[i],
-                lw=1.8,
-                mutation_scale=12,
+                lw=1.7,
+                mutation_scale=11,
                 linestyle=uav_linestyles[i],
+                shrinkA=0,
+                shrinkB=0,
             ),
             zorder=12,
         )
 
-        label_idx = max(8, int(0.12 * len(path)))
-        ax.text(
-            path[label_idx, 0],
-            path[label_idx, 1],
-            f"U{i + 1}",
-            fontsize=7.5,
-            fontweight="bold",
-            color=uav_colors[i],
-            ha="center",
-            va="center",
-            zorder=13,
-            path_effects=[pe.Stroke(linewidth=2.0, foreground="white"), pe.Normal()],
-        )
-
-        legend_lines.append(
-            Line2D(
-                [0],
-                [0],
-                color=uav_colors[i],
-                lw=2.1,
-                linestyle=uav_linestyles[i],
-                label=f"UAV {i + 1}",
-            )
-        )
-
-    cbar = fig.colorbar(heat, ax=ax, fraction=0.042, pad=0.02)
-    cbar.set_label("Normalized HPC priority", fontsize=9)
-    cbar.set_ticks(np.linspace(0.0, 1.0, 6))
-    cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:g}"))
-    cbar.ax.tick_params(labelsize=8.5)
-
-    ax.set_xlabel(r"Local $X$ (km)")
-    ax.set_ylabel(r"Local $Y$ (km)")
-    ax.tick_params(axis="both", which="both", labelsize=8.5)
-    ax.grid(True, linestyle="-", linewidth=0.35, color="#E0E0E0", alpha=0.65, zorder=0)
-    ax.set_aspect("equal", adjustable="box")
-
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#333333")
-    ax.spines["bottom"].set_color("#333333")
-
-    fig.legend(
-        handles=legend_lines,
-        loc="upper center",
-        bbox_to_anchor=(0.52, 0.99),
-        ncol=3,
-        frameon=False,
-        handlelength=1.6,
-        columnspacing=0.9,
-        handletextpad=0.45,
+    # Launch (start) and target (goal) markers, colored per UAV.
+    ax.scatter(
+        launch_points[:, 0],
+        launch_points[:, 1],
+        s=62,
+        c=uav_colors,
+        marker="^",
+        edgecolors="white",
+        linewidths=1.0,
+        zorder=13,
+    )
+    ax.scatter(
+        targets[:, 0],
+        targets[:, 1],
+        s=54,
+        c=uav_colors,
+        marker="o",
+        edgecolors="white",
+        linewidths=1.0,
+        zorder=13,
     )
 
-    fig.subplots_adjust(left=0.10, right=0.88, bottom=0.10, top=0.86)
-    fig.savefig("Figure6_HPC_Heatmap_Trajectories.png", dpi=300, bbox_inches="tight", facecolor="white")
-    fig.savefig("Figure6_HPC_Heatmap_Trajectories.pdf", dpi=300, bbox_inches="tight")
-    fig.savefig("Figure6_HPC_Heatmap_Trajectories.eps", dpi=300, bbox_inches="tight")
+    cbar = fig.colorbar(heat, ax=ax, fraction=0.046, pad=0.03)
+    cbar.set_label(r"Normalized priority $W$", fontsize=9.5, labelpad=6)
+    cbar.set_ticks(np.linspace(0.0, 1.0, 5))
+    cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:g}"))
+    cbar.ax.tick_params(labelsize=8, width=0.7, length=3)
+    cbar.outline.set_linewidth(0.7)
+
+    ax.set_xlim(x_edges[0], x_edges[-1])
+    ax.set_ylim(y_edges[0], y_edges[-1])
+    ax.set_xlabel(r"Local $X$ (km)")
+    ax.set_ylabel(r"Local $Y$ (km)")
+    ax.xaxis.set_major_locator(MultipleLocator(0.25))
+    ax.yaxis.set_major_locator(MultipleLocator(0.25))
+    ax.tick_params(axis="both", which="both", labelsize=8.5, width=0.7, length=3, color="#5A5A5A")
+    ax.grid(True, linestyle=(0, (3, 3)), linewidth=0.3, color="#BEBEBE", alpha=0.55, zorder=0)
+    ax.set_aspect("equal", adjustable="box")
+
+    for side in ("top", "right", "left", "bottom"):
+        ax.spines[side].set_color("#444444")
+        ax.spines[side].set_linewidth(0.7)
+
+    route_handles = [
+        Line2D([0], [0], color=uav_colors[i], lw=1.9, linestyle=uav_linestyles[i], label=f"UAV {i + 1}")
+        for i in range(n_uav)
+    ]
+    marker_handles = [
+        Line2D([0], [0], color="#1A1A1A", lw=1.3, label="Boundary"),
+        Line2D(
+            [0], [0], marker="*", linestyle="None", markersize=7,
+            markerfacecolor="#F4F4F4", markeredgecolor="#242424", markeredgewidth=0.5,
+            label="High-priority cell",
+        ),
+        Line2D(
+            [0], [0], marker="^", linestyle="None", markersize=7,
+            markerfacecolor="#7A7A7A", markeredgecolor="white", markeredgewidth=0.8,
+            label="Launch",
+        ),
+        Line2D(
+            [0], [0], marker="o", linestyle="None", markersize=6.5,
+            markerfacecolor="#7A7A7A", markeredgecolor="white", markeredgewidth=0.8,
+            label="Target",
+        ),
+    ]
+
+    fig.legend(
+        handles=route_handles + marker_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.01),
+        ncol=4,
+        frameon=False,
+        handlelength=1.7,
+        columnspacing=1.1,
+        handletextpad=0.5,
+        labelspacing=0.55,
+    )
+
+    fig.subplots_adjust(left=0.13, right=0.99, bottom=0.17, top=0.99)
+    fig.savefig("Figure6_HPC_Heatmap_Trajectories.png", dpi=600, bbox_inches="tight", facecolor="white")
+    fig.savefig("Figure6_HPC_Heatmap_Trajectories.pdf", bbox_inches="tight")
+    fig.savefig("Figure6_HPC_Heatmap_Trajectories.eps", bbox_inches="tight")
     plt.close(fig)
 
-    print("Saved Figure6_HPC_Heatmap_Trajectories.png (300 dpi)")
+    print("Saved Figure6_HPC_Heatmap_Trajectories.png (600 dpi)")
     print("Saved Figure6_HPC_Heatmap_Trajectories.pdf")
     print("Saved Figure6_HPC_Heatmap_Trajectories.eps")
 
