@@ -7,23 +7,40 @@ from matplotlib.ticker import FuncFormatter
 from shapely.geometry import Point, Polygon
 
 
-def create_synthetic_boundary(rng, center=(10.0, 8.0), mean_radius=6.0, n_vertices=24):
-    """Create a realistic irregular polygon in local x/y coordinates (km)."""
+# Physical study-area definition (must match the MATLAB simulation grid).
+# See runIEEEStudy.m / MapGenerator.build(N, M, dx, ...): N=54, M=72, dx=18 m.
+# Columns (M) map to Local X, rows (N) map to Local Y.
+GRID_COLS = 72  # M -> Local X
+GRID_ROWS = 54  # N -> Local Y
+CELL_SIZE_M = 18.0
+CELL_SIZE_KM = CELL_SIZE_M / 1000.0  # 0.018 km per cell edge
+DOMAIN_W_KM = GRID_COLS * CELL_SIZE_KM  # 72 * 18 m = 1.296 km (Local X)
+DOMAIN_H_KM = GRID_ROWS * CELL_SIZE_KM  # 54 * 18 m = 0.972 km (Local Y)
+
+
+def create_synthetic_boundary(rng, center, radius_x, radius_y, n_vertices=26):
+    """Create a realistic irregular polygon in local x/y coordinates (km).
+
+    The blob is centered at ``center`` and sized by ``radius_x``/``radius_y`` so
+    it fits inside the physical study-area domain (see DOMAIN_W_KM/DOMAIN_H_KM).
+    """
     angles = np.linspace(0, 2 * np.pi, n_vertices, endpoint=False)
     angles += rng.normal(0.0, 0.06, size=n_vertices)
     angles = np.sort(angles)
 
+    # Normalized radial variation around 1.0 (dimensionless), then scaled by the
+    # per-axis radii so the boundary stays inside the domain regardless of scale.
     harmonic = (
-        0.55 * np.sin(2 * angles + 0.7)
-        + 0.40 * np.sin(3 * angles - 1.1)
-        + 0.25 * np.sin(5 * angles + 0.3)
+        0.11 * np.sin(2 * angles + 0.7)
+        + 0.08 * np.sin(3 * angles - 1.1)
+        + 0.05 * np.sin(5 * angles + 0.3)
     )
-    random_component = rng.normal(0.0, 0.35, size=n_vertices)
-    radii = mean_radius + harmonic + random_component
-    radii = np.clip(radii, mean_radius * 0.62, mean_radius * 1.42)
+    random_component = rng.normal(0.0, 0.05, size=n_vertices)
+    radial = 1.0 + harmonic + random_component
+    radial = np.clip(radial, 0.75, 1.20)
 
-    x = center[0] + radii * np.cos(angles)
-    y = center[1] + radii * np.sin(angles)
+    x = center[0] + radius_x * radial * np.cos(angles)
+    y = center[1] + radius_y * radial * np.sin(angles)
     poly = Polygon(np.column_stack([x, y])).buffer(0)
     if not poly.is_valid:
         raise ValueError("Failed to create a valid synthetic polygon boundary.")
@@ -46,16 +63,14 @@ def sample_points_in_polygon(poly, n_points, rng):
     return np.array(points)
 
 
-def build_grid(poly, nx=40, ny=40):
-    """Build regular grid and inside-mask for cell centers."""
-    minx, miny, maxx, maxy = poly.bounds
-    pad_x = 0.03 * (maxx - minx)
-    pad_y = 0.03 * (maxy - miny)
-    minx, maxx = minx - pad_x, maxx + pad_x
-    miny, maxy = miny - pad_y, maxy + pad_y
+def build_grid(poly, width_km, height_km, nx, ny):
+    """Build the regular physical grid and inside-mask for cell centers.
 
-    x_edges = np.linspace(minx, maxx, nx + 1)
-    y_edges = np.linspace(miny, maxy, ny + 1)
+    The grid spans the fixed study-area domain [0, width_km] x [0, height_km]
+    with ``nx`` columns and ``ny`` rows so each cell is exactly ``dx`` on a side.
+    """
+    x_edges = np.linspace(0.0, width_km, nx + 1)
+    y_edges = np.linspace(0.0, height_km, ny + 1)
 
     x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
     y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
@@ -199,17 +214,35 @@ def main():
     seed = 20260506
     rng = np.random.default_rng(seed)
 
-    boundary = create_synthetic_boundary(rng)
-    x_edges, y_edges, xx, yy, inside = build_grid(boundary, nx=72, ny=72)
+    # Boundary is centered in the physical domain and sized to fill it with a
+    # small margin so launch points and depots still fit inside the axes.
+    domain_center = (DOMAIN_W_KM / 2.0, DOMAIN_H_KM / 2.0)
+    boundary = create_synthetic_boundary(
+        rng,
+        center=domain_center,
+        radius_x=0.40 * DOMAIN_W_KM,
+        radius_y=0.40 * DOMAIN_H_KM,
+    )
+    x_edges, y_edges, xx, yy, inside = build_grid(
+        boundary, DOMAIN_W_KM, DOMAIN_H_KM, nx=GRID_COLS, ny=GRID_ROWS
+    )
 
     hotspot_centers = sample_points_in_polygon(boundary, n_points=5, rng=rng)
     hotspot_amps = rng.uniform(0.8, 1.4, size=5)
+    # Hotspot sigmas expressed as a fraction of the domain size (km), so the
+    # priority blobs keep a sensible spatial footprint at the true field scale.
     hotspot_sigmas = np.column_stack(
-        [rng.uniform(0.85, 1.55, size=5), rng.uniform(0.75, 1.45, size=5)]
+        [
+            rng.uniform(0.07, 0.12, size=5) * DOMAIN_W_KM,
+            rng.uniform(0.07, 0.12, size=5) * DOMAIN_H_KM,
+        ]
     )
     base_field = gaussian_field(xx, yy, hotspot_centers, hotspot_amps, hotspot_sigmas)
 
-    low_freq_trend = 0.15 * np.sin(0.45 * xx) * np.cos(0.38 * yy)
+    # Low-frequency trend defined by cycles-across-domain so it scales with size.
+    kx = 2.0 * np.pi * 1.2 / DOMAIN_W_KM
+    ky = 2.0 * np.pi * 0.9 / DOMAIN_H_KM
+    low_freq_trend = 0.15 * np.sin(kx * xx) * np.cos(ky * yy)
     noise = rng.normal(0.0, 0.05, size=xx.shape)
     hpc_raw = base_field + low_freq_trend + noise
     hpc_norm = normalize_inside(hpc_raw, inside)
@@ -229,14 +262,19 @@ def main():
     uav_linestyles = ["-", "-", "-", "--"]
 
     minx, miny, maxx, maxy = boundary.bounds
+    # Depot/launch offsets are fractions of the domain so they sit just outside
+    # the field boundary but still inside the plotted axes at any scale.
     launch_points = np.array(
         [
-            [minx - 0.35, miny + 0.18 * (maxy - miny)],
-            [minx - 0.20, miny + 0.44 * (maxy - miny)],
-            [minx + 0.10, miny - 0.28],
-            [minx + 0.30 * (maxx - minx), miny - 0.35],
+            [minx - 0.055 * DOMAIN_W_KM, miny + 0.18 * (maxy - miny)],
+            [minx - 0.035 * DOMAIN_W_KM, miny + 0.44 * (maxy - miny)],
+            [minx + 0.10 * (maxx - minx), miny - 0.050 * DOMAIN_H_KM],
+            [minx + 0.30 * (maxx - minx), miny - 0.065 * DOMAIN_H_KM],
         ]
     )
+    # Keep launch points within the physical domain [0, W] x [0, H].
+    launch_points[:, 0] = np.clip(launch_points[:, 0], 0.01 * DOMAIN_W_KM, 0.99 * DOMAIN_W_KM)
+    launch_points[:, 1] = np.clip(launch_points[:, 1], 0.01 * DOMAIN_H_KM, 0.99 * DOMAIN_H_KM)
     cell_w = np.abs(x_edges[1] - x_edges[0])
     cell_h = np.abs(y_edges[1] - y_edges[0])
     spread_min_dist = 1.8 * np.sqrt(cell_w**2 + cell_h**2)
@@ -433,6 +471,10 @@ def main():
     cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:g}"))
     cbar.ax.tick_params(labelsize=8.5)
 
+    # Lock the axes to the true study-area extent (72 x 54 cells @ 18 m):
+    # Local X in [0, 1.296] km, Local Y in [0, 0.972] km.
+    ax.set_xlim(0.0, DOMAIN_W_KM)
+    ax.set_ylim(0.0, DOMAIN_H_KM)
     ax.set_xlabel(r"Local $X$ (km)")
     ax.set_ylabel(r"Local $Y$ (km)")
     ax.tick_params(axis="both", which="both", labelsize=8.5)
