@@ -7,18 +7,23 @@ from matplotlib.ticker import FuncFormatter
 from shapely.geometry import Point, Polygon
 
 
-def create_synthetic_boundary(rng, center=(10.0, 8.0), mean_radius=6.0, n_vertices=24):
-    """Create a realistic irregular polygon in local x/y coordinates (km)."""
+def create_synthetic_boundary(rng, center, mean_radius, n_vertices=24):
+    """Create a realistic irregular polygon in local x/y coordinates (km).
+
+    The harmonic and random radial perturbations are expressed as fractions of
+    ``mean_radius`` so the boundary shape stays self-similar at any physical
+    scale (i.e. it looks the same whether the domain is 1 km or 16 km wide).
+    """
     angles = np.linspace(0, 2 * np.pi, n_vertices, endpoint=False)
     angles += rng.normal(0.0, 0.06, size=n_vertices)
     angles = np.sort(angles)
 
-    harmonic = (
-        0.55 * np.sin(2 * angles + 0.7)
-        + 0.40 * np.sin(3 * angles - 1.1)
-        + 0.25 * np.sin(5 * angles + 0.3)
+    harmonic = mean_radius * (
+        0.092 * np.sin(2 * angles + 0.7)
+        + 0.067 * np.sin(3 * angles - 1.1)
+        + 0.042 * np.sin(5 * angles + 0.3)
     )
-    random_component = rng.normal(0.0, 0.35, size=n_vertices)
+    random_component = rng.normal(0.0, 0.058, size=n_vertices) * mean_radius
     radii = mean_radius + harmonic + random_component
     radii = np.clip(radii, mean_radius * 0.62, mean_radius * 1.42)
 
@@ -46,13 +51,15 @@ def sample_points_in_polygon(poly, n_points, rng):
     return np.array(points)
 
 
-def build_grid(poly, nx=40, ny=40):
-    """Build regular grid and inside-mask for cell centers."""
-    minx, miny, maxx, maxy = poly.bounds
-    pad_x = 0.03 * (maxx - minx)
-    pad_y = 0.03 * (maxy - miny)
-    minx, maxx = minx - pad_x, maxx + pad_x
-    miny, maxy = miny - pad_y, maxy + pad_y
+def build_grid(poly, domain_bounds, nx, ny):
+    """Build a regular grid over an explicit domain and inside-mask for cell centers.
+
+    ``domain_bounds`` is ``(minx, miny, maxx, maxy)`` in km and defines the true
+    study-area extent, so the axes reflect the physical size of the mapped region
+    rather than the padded bounding box of the synthetic boundary. Using ``nx``/``ny``
+    equal to the real cell counts keeps every cell at the intended ground resolution.
+    """
+    minx, miny, maxx, maxy = domain_bounds
 
     x_edges = np.linspace(minx, maxx, nx + 1)
     y_edges = np.linspace(miny, maxy, ny + 1)
@@ -199,17 +206,46 @@ def main():
     seed = 20260506
     rng = np.random.default_rng(seed)
 
-    boundary = create_synthetic_boundary(rng)
-    x_edges, y_edges, xx, yy, inside = build_grid(boundary, nx=72, ny=72)
+    # Real study-area geometry (see runIEEEStudy.m / MapGenerator.build): a
+    # 54 x 72 grid of square cells at dx = 18 m. This fixes the axes to the true
+    # 0.972 km x 1.296 km footprint instead of the previous ~16 km x 14 km, which
+    # came from generating the synthetic boundary at an arbitrary km scale.
+    dx_m = 18.0
+    n_cells_x = 54
+    n_cells_y = 72
+    domain_w = n_cells_x * dx_m / 1000.0  # 0.972 km
+    domain_h = n_cells_y * dx_m / 1000.0  # 1.296 km
+    domain_bounds = (0.0, 0.0, domain_w, domain_h)
+
+    # Keep the boundary well inside the domain so launch markers placed just
+    # outside it still fall within the plotted study area.
+    boundary_center = (domain_w / 2.0, domain_h / 2.0)
+    boundary_radius = 0.30 * domain_w
+
+    boundary = create_synthetic_boundary(rng, boundary_center, boundary_radius)
+    x_edges, y_edges, xx, yy, inside = build_grid(
+        boundary, domain_bounds, nx=n_cells_x, ny=n_cells_y
+    )
 
     hotspot_centers = sample_points_in_polygon(boundary, n_points=5, rng=rng)
     hotspot_amps = rng.uniform(0.8, 1.4, size=5)
+    # Hotspot widths scale with the boundary size (fractions of its radius) so the
+    # heatmap keeps the same visual character at the corrected physical scale.
     hotspot_sigmas = np.column_stack(
-        [rng.uniform(0.85, 1.55, size=5), rng.uniform(0.75, 1.45, size=5)]
+        [
+            rng.uniform(0.142, 0.258, size=5) * boundary_radius,
+            rng.uniform(0.125, 0.242, size=5) * boundary_radius,
+        ]
     )
     base_field = gaussian_field(xx, yy, hotspot_centers, hotspot_amps, hotspot_sigmas)
 
-    low_freq_trend = 0.15 * np.sin(0.45 * xx) * np.cos(0.38 * yy)
+    # Low-frequency trend expressed in cycles across the domain so it renders the
+    # same gentle gradient regardless of the absolute domain size.
+    low_freq_trend = (
+        0.15
+        * np.sin(2 * np.pi * 0.85 * (xx - domain_bounds[0]) / domain_w)
+        * np.cos(2 * np.pi * 0.73 * (yy - domain_bounds[1]) / domain_h)
+    )
     noise = rng.normal(0.0, 0.05, size=xx.shape)
     hpc_raw = base_field + low_freq_trend + noise
     hpc_norm = normalize_inside(hpc_raw, inside)
@@ -229,12 +265,16 @@ def main():
     uav_linestyles = ["-", "-", "-", "--"]
 
     minx, miny, maxx, maxy = boundary.bounds
+    b_w = maxx - minx
+    b_h = maxy - miny
+    # Offsets are fractions of the boundary bounding box so the launch markers sit
+    # just outside the boundary while remaining inside the plotted study area.
     launch_points = np.array(
         [
-            [minx - 0.35, miny + 0.18 * (maxy - miny)],
-            [minx - 0.20, miny + 0.44 * (maxy - miny)],
-            [minx + 0.10, miny - 0.28],
-            [minx + 0.30 * (maxx - minx), miny - 0.35],
+            [minx - 0.029 * b_w, miny + 0.18 * b_h],
+            [minx - 0.017 * b_w, miny + 0.44 * b_h],
+            [minx + 0.008 * b_w, miny - 0.023 * b_h],
+            [minx + 0.30 * b_w, miny - 0.029 * b_h],
         ]
     )
     cell_w = np.abs(x_edges[1] - x_edges[0])
