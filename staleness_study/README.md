@@ -14,9 +14,11 @@ python run_closed_loop.py --quick      # closed-loop smoke test
 python3 run_sensitivity_study.py       # map sensitivity analysis (N=50)
 python3 run_sensitivity_study.py --quick
 python3 run_critical_fixes.py --quick   # review checklist (Table II, baselines, closed-loop)
+python3 run_publication_study.py --quick  # three-regime publication study (smoke)
+python3 run_publication_study.py --n-mc 50  # R1/R2/R3 + operating envelope
 ```
 
-See [CLOSED_LOOP.md](CLOSED_LOOP.md), [SENSITIVITY.md](SENSITIVITY.md), and [CRITICAL_FIXES.md](CRITICAL_FIXES.md).
+See [CLOSED_LOOP.md](CLOSED_LOOP.md), [SENSITIVITY.md](SENSITIVITY.md), [CRITICAL_FIXES.md](CRITICAL_FIXES.md), and [PUBLICATION.md](PUBLICATION.md).
 
 Outputs land in `output/`:
 | File | Content |
