@@ -25,6 +25,9 @@ from .staleness import StalenessModel, StalenessParams, calibrate_ghost_sigma, c
 from .environment import PriorityField, build_priority_field
 from .planner import IUEFEMPlanner, PlannerOptions
 from .mission import MissionConfig, run_mission, SyncPolicy
+from .registry import build_plan, PLANNER_REGISTRY, BASELINE_PLANNERS, ABLATION_PLANNERS
+from .executor import ExecConfig, MissionMetrics, evaluate_planner, execute_plan
+from .iuef_em import IUEFEMOptions, AblationMode, build_iuef_em_plan
 
 __all__ = [
     "NTNChannel",
@@ -40,6 +43,13 @@ __all__ = [
     "MissionConfig",
     "run_mission",
     "SyncPolicy",
+    "build_plan",
+    "PLANNER_REGISTRY",
+    "BASELINE_PLANNERS",
+    "ABLATION_PLANNERS",
+    "evaluate_planner",
+    "ExecConfig",
+    "MissionMetrics",
 ]
 
 __version__ = "1.0.0"

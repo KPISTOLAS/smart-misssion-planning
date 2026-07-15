@@ -1,0 +1,6 @@
+planner,HPC_mean,HPC_std,HPC_CI95,coverage_%,duration_steps,energy_J_per_UAVh,collision_mean,collision_std,near_miss_mean,N
+iuef_em,41.78,3.48,"[40.8, 42.7]",9.41,1200.0,64800.0,0.5273,0.4915,0.6019,50
+ablation_no_balance,40.19,3.38,"[39.2, 41.1]",8.95,1200.0,64800.0,0.0004,0.0011,0.0564,50
+ablation_no_congestion,41.75,3.74,"[40.7, 42.8]",9.39,1200.0,64800.0,0.5276,0.4917,0.6021,50
+ablation_no_priority,40.5,4.62,"[39.2, 41.8]",8.96,1200.0,64800.0,0.5271,0.491,0.5287,50
+ablation_no_astar,96.31,1.1,"[96.0, 96.6]",15.37,1200.0,64800.0,0.5279,0.491,0.5969,50

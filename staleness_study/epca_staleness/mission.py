@@ -38,7 +38,9 @@ from enum import Enum
 import numpy as np
 
 from .channel import NTNChannel
-from .staleness import StalenessModel, StalenessParams, age_of, kappa, interval_retention
+from .staleness import StalenessModel, StalenessParams, kappa, interval_retention
+from .registry import build_plan as build_planner_plan
+from .planning_utils import pick_depots
 from .planner import IUEFEMPlanner, PlannerOptions
 
 
@@ -62,7 +64,8 @@ class MissionConfig:
     # Adaptive-policy triggers:
     adapt_age_steps: float = 30.0    # sync if steps_since_sync exceeds this
     adapt_retention_drop: float = 0.28  # sync if predicted retention drop > this
-    adapt_tau_plan_factor: float = 0.65  # adaptive plans on tau_ref * factor (not age cap)
+    adapt_tau_plan_factor: float = 0.65
+    planner_name: str = "iuef_em"      # any registered planner name
     # Staleness normalisation reference (mean interval for the regime).  Using a
     # single reference for both policies isolates the *timing* effect of the
     # policy from the channel statistics for a fair comparison.
@@ -136,7 +139,12 @@ def run_mission(field,
         channel = NTNChannel("medium", rng=rng)
 
     staleness = StalenessModel(staleness_params, rng=rng)
-    planner = IUEFEMPlanner(config.planner_options)
+
+    def _make_plan(belief, depots):
+        if config.planner_name == "iuef_em":
+            planner = IUEFEMPlanner(config.planner_options)
+            return planner.build_plan(field, belief, U, starts=depots)
+        return build_planner_plan(config.planner_name, field, belief, U, starts=depots)
 
     tau_ref = config.tau_ref if config.tau_ref is not None else channel.expected_tau(4000)
     tau_ref = max(1.0, float(tau_ref))
@@ -146,7 +154,7 @@ def run_mission(field,
     dx = field.dx
     U = config.num_uav
 
-    starts = planner.pick_depots(trav, U)
+    starts = pick_depots(trav, U)
     positions = starts.astype(float).copy()
     last_synced_positions = positions.copy()
 
@@ -159,7 +167,7 @@ def run_mission(field,
 
     # Initial plan on a fresh sync.
     belief = _plan_belief(field, staleness, tau_plan_init)
-    plan = planner.build_plan(field, belief, U, starts=starts)
+    plan = _make_plan(belief, starts)
     paths = [list(seg) for seg in plan["segments"]]
     path_idx = [0] * U
 
@@ -215,7 +223,7 @@ def run_mission(field,
             else:
                 tau_plan = tau_ref * config.adapt_tau_plan_factor
             belief = _plan_belief(field, staleness, tau_plan)
-            plan = planner.build_plan(field, belief, U, starts=starts)
+            plan = _make_plan(belief, starts)
             paths = [list(seg) for seg in plan["segments"]]
             # Resume each path near the UAV's current cell (closest waypoint).
             path_idx = []

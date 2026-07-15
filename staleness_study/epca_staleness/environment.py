@@ -79,6 +79,7 @@ class PriorityField:
     O: np.ndarray                     # obstacle proximity in [0,1]
     W: np.ndarray                     # composite priority weight
     high_mask: np.ndarray            # bool hotspot mask (H >= thr) & traversable
+    Z_m: np.ndarray = None           # optional elevation (m) for A* slope costs
     meta: dict = field(default_factory=dict)
 
     @property
@@ -186,9 +187,16 @@ def build_priority_field(N: int = 50,
         w_hi = float(high_health_thr)
     high_mask = (W >= w_hi) & trav
 
+    # Mild hilly terrain for elevation-aware A* (optional but enabled by default).
+    ctr = np.array([N / 2, M / 2])
+    rr, cc = np.meshgrid(np.arange(N), np.arange(M), indexing="ij")
+    Z_m = 12.0 * np.exp(-((rr - ctr[0]) ** 2 + (cc - ctr[1]) ** 2) / (0.15 * (N + M)))
+    Z_m += 6.0 * np.exp(-((rr - 0.35 * N) ** 2 + (cc - 0.62 * M) ** 2) / (0.08 * (N + M)))
+    Z_m[obstacle] = Z_m[~obstacle].mean() if trav.any() else 0.0
+
     return PriorityField(
         N=N, M=M, dx=dx, H=H, sigma=sigma, obstacle=obstacle, O=O, W=W,
-        high_mask=high_mask,
+        high_mask=high_mask, Z_m=Z_m,
         meta=dict(alpha=alpha, beta=beta, gamma=gamma, high_health_thr=high_health_thr,
                   tree_density=tree_density, seed=seed, hotspot_frac=hotspot_frac,
                   w_hi=w_hi),
