@@ -126,6 +126,11 @@ def execute_plan(field, plan: dict, cfg: ExecConfig | None = None) -> MissionMet
         if t == half_t:
             hpc_early = 100.0 * np.count_nonzero(visited & high_mask) / n_high
 
+        # Early HPC at ~25% path progress (priority ordering benefit).
+        progress = sum(path_idx[u] for u in range(U)) / total_path
+        if progress >= 0.25 and hpc_early == 0.0:
+            hpc_early = 100.0 * np.count_nonzero(visited & high_mask) / n_high
+
         if all(path_idx[u] >= len(segments[u]) - 1 for u in range(U)):
             steps = t + 1
             break

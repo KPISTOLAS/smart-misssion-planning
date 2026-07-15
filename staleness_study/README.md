@@ -9,7 +9,11 @@ cd staleness_study
 pip install -r requirements.txt
 python run_staleness_study.py          # full study (N=50)
 python run_staleness_study.py --quick  # smoke test (~2 min)
+python run_closed_loop.py              # closed-loop sensing-to-planning (N=50)
+python run_closed_loop.py --quick      # closed-loop smoke test
 ```
+
+See [CLOSED_LOOP.md](CLOSED_LOOP.md) for the end-to-end EPCA-M closed-loop simulator.
 
 Outputs land in `output/`:
 | File | Content |
