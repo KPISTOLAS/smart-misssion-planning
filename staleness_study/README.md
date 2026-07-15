@@ -11,9 +11,11 @@ python run_staleness_study.py          # full study (N=50)
 python run_staleness_study.py --quick  # smoke test (~2 min)
 python run_closed_loop.py              # closed-loop sensing-to-planning (N=50)
 python run_closed_loop.py --quick      # closed-loop smoke test
+python3 run_sensitivity_study.py       # map sensitivity analysis (N=50)
+python3 run_sensitivity_study.py --quick
 ```
 
-See [CLOSED_LOOP.md](CLOSED_LOOP.md) for the end-to-end EPCA-M closed-loop simulator.
+See [CLOSED_LOOP.md](CLOSED_LOOP.md) and [SENSITIVITY.md](SENSITIVITY.md).
 
 Outputs land in `output/`:
 | File | Content |
