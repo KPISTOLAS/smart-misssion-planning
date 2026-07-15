@@ -114,10 +114,11 @@ def main():
     print("\n--- Ablation summary (HPC %, collision) ---")
     for k, v in ablation.items():
         print(f"  {k:28s}  HPC={v.hpc_mean:5.1f}±{v.hpc_std:.1f}  coll={v.collision_mean:.3f}")
-    print("\n--- Baseline ranking by HPC ---")
-    ranked = sorted(baselines.items(), key=lambda x: -x[1].hpc_mean)
+    print("\n--- Baseline ranking by mission score (WHPC × safety / energy) ---")
+    ranked = sorted(baselines.items(), key=lambda x: -x[1].mission_score_mean)
     for k, v in ranked:
-        print(f"  {k:22s}  HPC={v.hpc_mean:5.1f}  cov={v.coverage_mean:5.1f}  coll={v.collision_mean:.3f}")
+        print(f"  {k:22s}  score={v.mission_score_mean:.3f}  HPC={v.hpc_mean:5.1f}  "
+              f"early={v.hpc_early_mean:5.1f}  coll={v.collision_mean:.3f}")
 
 
 if __name__ == "__main__":

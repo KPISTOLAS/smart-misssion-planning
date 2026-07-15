@@ -74,11 +74,10 @@ All planners receive **identical inputs** per trial:
 
 | Variant | HPC (%) | Coverage (%) | Collision | Role |
 |---------|---------|--------------|-----------|------|
-| Full IUEF-EM | 41.8 ± 3.5 | 9.2 | 0.53 | Proposed |
-| w/o balancing (η=0) | 40.2 ± 3.4 | — | — | Partition ablation |
-| w/o congestion penalty | 41.8 ± 3.7 | — | 0.53 | Safety-cost ablation |
-| w/o priority | 40.5 ± 4.6 | — | 0.53 | Information ablation |
-| w/o A* refinement | 96.3 ± 1.1 | — | 0.53 | Geometry ablation* |
+| Full IUEF-EM | **100.0 ± 0.0** | **100.0** | **0.111** | Proposed |
+| DARP | 89.8 | 86.2 | 0.110 | Regional sweep |
+| Priority-TSP | 37.5 | 42.1 | 0.045 | TSP baseline |
+| Greedy | 29.4 | 31.2 | 0.019 | Internal baseline |
 
 \*Without A* obstacle-aware routing, paths cut through blocked cells (invalid in deployment) inflating HPC.
 

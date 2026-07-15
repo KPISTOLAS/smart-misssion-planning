@@ -138,41 +138,43 @@ def stitch_goals(trav, start, ordered_goals, O=None, Z=None,
     return path if path else [tuple(start)]
 
 
-def capacitated_voronoi(coords: np.ndarray, wgt: np.ndarray,
-                        depots: np.ndarray, dx: float = 18.0,
-                        eta: float = 1.0, num_iter: int = 14) -> np.ndarray:
-    """Classic DARP-style capacitated Voronoi (ported from SpatialDecomposition.m).
+def balanced_hotspot_assign(coords: np.ndarray, wgt: np.ndarray,
+                            depots: np.ndarray, eta: float = 1.0) -> np.ndarray:
+    """Stable workload-balanced assignment of hotspots to depots.
 
-    eta controls workload-balancing strength (eta=0 -> nearest-depot only).
+    Starts from nearest-depot labels, then iteratively moves border hotspots
+    from overloaded to underloaded UAVs. eta=0 skips rebalancing (ablation).
     """
     n, K = coords.shape[0], depots.shape[0]
     if K <= 1 or n == 0:
         return np.zeros(n, dtype=int)
-    if n <= K:
-        order = np.argsort(coords[:, 0] * 1e6 + coords[:, 1])
-        lbl = np.zeros(n, dtype=int)
-        for ii, idx in enumerate(order):
-            lbl[idx] = min(ii, K - 1)
-        return lbl
-
-    D = np.zeros((n, K))
-    for u in range(K):
-        D[:, u] = np.hypot(coords[:, 0] - depots[u, 0],
-                           coords[:, 1] - depots[u, 1]) * dx
+    D = np.linalg.norm(coords[:, None, :] - depots[None, :, :], axis=2)
+    assigns = np.argmin(D, axis=1).astype(int)
     if eta <= 1e-9:
-        return np.argmin(D, axis=1)
+        return assigns
 
-    lam = np.ones(K)
-    mass_target = max(wgt.sum(), 1e-9) / K
-    lbl = np.zeros(n, dtype=int)
-    for _ in range(num_iter):
-        for i in range(n):
-            costs = lam * (D[i] ** 2)
-            lbl[i] = int(np.argmin(costs))
-        mass = np.array([wgt[lbl == u].sum() for u in range(K)])
-        lam *= np.sqrt(np.maximum(mass / mass_target, 1e-9))
-        lam /= max(lam.mean(), 1e-9)
-    return lbl
+    target_mass = max(wgt.sum(), 1e-9) / K
+    for _ in range(n * 2):
+        mass = np.array([wgt[assigns == k].sum() for k in range(K)])
+        heavy = int(np.argmax(mass))
+        light = int(np.argmin(mass))
+        if mass[heavy] <= target_mass * 1.02:
+            break
+        candidates = np.where(assigns == heavy)[0]
+        if candidates.size == 0:
+            break
+        # Move the candidate that is easiest to hand off to the light UAV.
+        scores = D[candidates, light] - D[candidates, heavy]
+        best = candidates[int(np.argmin(scores))]
+        assigns[best] = light
+    return assigns
+
+
+def capacitated_voronoi(coords: np.ndarray, wgt: np.ndarray,
+                        depots: np.ndarray, dx: float = 18.0,
+                        eta: float = 1.0, num_iter: int = 14) -> np.ndarray:
+    """Capacitated assignment (delegates to stable balanced partition)."""
+    return balanced_hotspot_assign(coords, wgt, depots, eta=eta)
 
 
 def weighted_lloyd_partition(coords: np.ndarray, wgt: np.ndarray, K: int,
@@ -214,3 +216,44 @@ def horizon_shortcut(trav, path, Z=None, O=None, horizon: int = 12,
             out.append(path[i + 1])
             i += 1
     return out
+
+
+def bfs_voronoi_regions(trav: np.ndarray, depots: np.ndarray) -> np.ndarray:
+    """Multi-source BFS: assign each traversable cell to nearest depot (4-connected)."""
+    from collections import deque
+    n, m = trav.shape
+    owner = -np.ones((n, m), dtype=int)
+    q = deque()
+    for u, (r, c) in enumerate(depots):
+        if 0 <= r < n and 0 <= c < m and trav[r, c]:
+            owner[r, c] = u
+            q.append((r, c, u))
+    nbr = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    while q:
+        r, c, u = q.popleft()
+        for dr, dc in nbr:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < n and 0 <= nc < m and trav[nr, nc] and owner[nr, nc] < 0:
+                owner[nr, nc] = u
+                q.append((nr, nc, u))
+    return owner
+
+
+def assign_hotspots_by_region(trav: np.ndarray, high_mask: np.ndarray,
+                              depots: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Assign every hotspot cell to the BFS Voronoi region of its nearest depot.
+
+    Returns (hotspot_coords [N x 2], assigns [N]).
+    """
+    regions = bfs_voronoi_regions(trav, depots)
+    idx = np.argwhere(high_mask & trav)
+    if idx.shape[0] == 0:
+        return idx, np.zeros(0, dtype=int)
+    assigns = regions[idx[:, 0], idx[:, 1]]
+    # Unassigned hotspots (disconnected) -> nearest depot in Euclidean sense.
+    unassigned = assigns < 0
+    if unassigned.any():
+        for i in np.where(unassigned)[0]:
+            d = np.hypot(idx[i, 0] - depots[:, 0], idx[i, 1] - depots[:, 1])
+            assigns[i] = int(np.argmin(d))
+    return idx, assigns

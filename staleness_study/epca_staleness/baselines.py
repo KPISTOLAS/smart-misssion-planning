@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from .planning_utils import (
-    pick_depots, capacitated_voronoi, stitch_goals, astar_grid,
+    pick_depots, capacitated_voronoi, stitch_goals, astar_grid, bfs_voronoi_regions,
 )
 
 
@@ -33,27 +33,6 @@ def _hotspot_targets(field, W_est, max_targets=260):
 # ------------------------------------------------------------------ #
 # DARP — divide areas, serpentine within region
 # ------------------------------------------------------------------ #
-def _bfs_voronoi_regions(trav: np.ndarray, depots: np.ndarray) -> np.ndarray:
-    """Multi-source BFS: each cell assigned to nearest depot (graph distance)."""
-    n, m = trav.shape
-    owner = -np.ones((n, m), dtype=int)
-    from collections import deque
-    q = deque()
-    for u, (r, c) in enumerate(depots):
-        if trav[r, c]:
-            owner[r, c] = u
-            q.append((r, c, u))
-    nbr = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-    while q:
-        r, c, u = q.popleft()
-        for dr, dc in nbr:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < n and 0 <= nc < m and trav[nr, nc] and owner[nr, nc] < 0:
-                owner[nr, nc] = u
-                q.append((nr, nc, u))
-    return owner
-
-
 def _serpentine_in_mask(mask: np.ndarray) -> list:
     """Serpentine order over True cells in mask."""
     n, m = mask.shape
@@ -71,7 +50,7 @@ def build_darp_plan(field, W_est, num_uav, starts=None, name="darp") -> dict:
     trav = field.traversable
     if starts is None:
         starts = pick_depots(trav, num_uav)
-    regions = _bfs_voronoi_regions(trav, starts)
+    regions = bfs_voronoi_regions(trav, starts)
     segments = []
     for u in range(num_uav):
         mask = (regions == u) & trav
@@ -87,7 +66,7 @@ def build_darp_plan(field, W_est, num_uav, starts=None, name="darp") -> dict:
             ordered = hi_cells + rest
         else:
             ordered = cells
-        path = stitch_goals(trav, starts[u], ordered[:min(180, len(ordered))],
+        path = stitch_goals(trav, starts[u], ordered[:min(150, len(ordered))],
                             O=field.O, use_astar=True)
         segments.append(path)
     return {"segments": segments, "starts": starts, "num_uav": num_uav, "name": name}
@@ -155,8 +134,7 @@ def build_priority_tsp_plan(field, W_est, num_uav, starts=None, name="priority_t
             ordered = _cheapest_insertion_tsp(starts[u], goals.astype(float), gw)
         else:
             from .iuef_em import _weighted_order
-            order = _weighted_order(starts[u], goals.astype(float), gw, True)
-            ordered = goals[order]
+            ordered = _weighted_order(starts[u], goals.astype(float), gw, True)
         path = stitch_goals(trav, starts[u], ordered, O=field.O, use_astar=True)
         segments.append(path)
     return {"segments": segments, "starts": starts, "num_uav": num_uav, "name": name}

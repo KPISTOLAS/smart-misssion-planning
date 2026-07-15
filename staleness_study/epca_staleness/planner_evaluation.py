@@ -40,6 +40,9 @@ class AggregateStats:
     hpc_std: float
     hpc_lo: float
     hpc_hi: float
+    whpc_mean: float
+    hpc_early_mean: float
+    mission_score_mean: float
     coverage_mean: float
     duration_mean: float
     energy_mean: float
@@ -64,6 +67,9 @@ def aggregate(metrics: list[MissionMetrics]) -> AggregateStats:
     return AggregateStats(
         planner=metrics[0].planner if metrics else "",
         hpc_mean=hm, hpc_std=hs, hpc_lo=hlo, hpc_hi=hhi,
+        whpc_mean=float(np.mean([m.whpc_pct for m in metrics])),
+        hpc_early_mean=float(np.mean([m.hpc_early_pct for m in metrics])),
+        mission_score_mean=float(np.mean([m.mission_score for m in metrics])),
         coverage_mean=float(np.mean([m.coverage_pct for m in metrics])),
         duration_mean=float(np.mean([m.duration_steps for m in metrics])),
         energy_mean=float(np.mean([m.energy_per_uav_hour for m in metrics])),
@@ -194,6 +200,9 @@ def stats_to_table(stats: dict[str, AggregateStats]) -> list[dict]:
             "planner": name,
             "HPC_mean": round(s.hpc_mean, 2),
             "HPC_std": round(s.hpc_std, 2),
+            "WHPC_mean": round(s.whpc_mean, 2),
+            "HPC_early_mean": round(s.hpc_early_mean, 2),
+            "mission_score": round(s.mission_score_mean, 3),
             "HPC_CI95": f"[{s.hpc_lo:.1f}, {s.hpc_hi:.1f}]",
             "coverage_%": round(s.coverage_mean, 2),
             "duration_steps": round(s.duration_mean, 1),

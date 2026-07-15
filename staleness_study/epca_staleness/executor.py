@@ -40,12 +40,15 @@ class ExecConfig:
 class MissionMetrics:
     planner: str
     hpc_pct: float
+    whpc_pct: float              # priority-weighted HPC
+    hpc_early_pct: float         # HPC at 50% horizon (priority ordering benefit)
     coverage_pct: float
     duration_steps: int
     total_energy_J: float
     energy_per_uav_hour: float
     collision_rate: float
     near_miss_rate: float
+    mission_score: float         # composite: WHPC * (1-coll) / energy_norm
     n_uav: int
     seed: int = 0
 
@@ -69,7 +72,9 @@ def execute_plan(field, plan: dict, cfg: ExecConfig | None = None) -> MissionMet
     U = plan["num_uav"]
     segments = plan["segments"]
     high_mask = field.high_mask
+    W = field.W
     n_high = max(1, int(high_mask.sum()))
+    w_total = max(float(W[high_mask].sum()), 1e-9)
     n_trav = max(1, int(trav.sum()))
 
     d_safe_c = cfg.d_safe_m / cfg.dx
@@ -85,10 +90,12 @@ def execute_plan(field, plan: dict, cfg: ExecConfig | None = None) -> MissionMet
 
     energy = 0.0
     coll_steps = near_steps = 0
-    t_stop = cfg.horizon
+    prev_pos = positions.copy()
+    hpc_early = 0.0
+    half_t = cfg.horizon // 2
+    total_path = max(sum(max(len(s) - 1, 1) for s in segments), 1)
 
     for t in range(cfg.horizon):
-        any_moved = False
         for u in range(U):
             seg = segments[u]
             if path_idx[u] >= len(seg) - 1:
@@ -103,9 +110,10 @@ def execute_plan(field, plan: dict, cfg: ExecConfig | None = None) -> MissionMet
                     hold = True
                     break
             if not hold:
+                step_m = np.hypot(nxt[0] - positions[u][0], nxt[1] - positions[u][1]) * cfg.dx
+                energy += cfg.P0 * cfg.dt * 0.05 + cfg.k_speed * (step_m / max(cfg.dt, 1e-9)) ** 3 * cfg.dt
                 positions[u] = [nxt[0], nxt[1]]
                 path_idx[u] += 1
-                any_moved = True
                 r, c = int(round(nxt[0])), int(round(nxt[1]))
                 if 0 <= r < n and 0 <= c < m and trav[r, c]:
                     visited[r, c] = True
@@ -115,25 +123,33 @@ def execute_plan(field, plan: dict, cfg: ExecConfig | None = None) -> MissionMet
         coll_steps += int(coll)
         near_steps += int(near)
 
-        # Energy: sum per-UAV step distance * simplified power
-        for u in range(U):
-            energy += cfg.P0 * cfg.dt * 0.1
-        # Continue for full horizon (fair comparison across planners).
+        if t == half_t:
+            hpc_early = 100.0 * np.count_nonzero(visited & high_mask) / n_high
 
-    steps = cfg.horizon
+        if all(path_idx[u] >= len(segments[u]) - 1 for u in range(U)):
+            steps = t + 1
+            break
+    else:
+        steps = cfg.horizon
     hpc = 100.0 * np.count_nonzero(visited & high_mask) / n_high
+    whpc = 100.0 * float(W[visited & high_mask].sum()) / w_total
     cov = 100.0 * np.count_nonzero(visited & trav) / n_trav
     eph = energy / max(steps * cfg.dt / 3600.0 * U, 1e-9)
+    coll_r = float(coll_steps / steps)
+    mission_score = float(whpc * (1.0 - coll_r) / max(eph / 10000.0, 1e-9))
 
     return MissionMetrics(
         planner=plan.get("name", "unknown"),
         hpc_pct=float(hpc),
+        whpc_pct=float(whpc),
+        hpc_early_pct=float(hpc_early),
         coverage_pct=float(cov),
         duration_steps=int(steps),
         total_energy_J=float(energy),
         energy_per_uav_hour=float(eph),
-        collision_rate=float(coll_steps / steps),
+        collision_rate=coll_r,
         near_miss_rate=float(near_steps / steps),
+        mission_score=mission_score,
         n_uav=U,
     )
 
