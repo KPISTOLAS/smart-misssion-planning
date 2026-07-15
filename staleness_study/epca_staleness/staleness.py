@@ -38,12 +38,29 @@ import numpy as np
 class StalenessParams:
     """Degradation parameters for the EPCA-M staleness model.
 
-    Defaults are the paper's baseline values.
+    Defaults are **calibrated** for cumulative-interval operation at τ_ref=60
+    (ghost RMSE ≈ 10 cells, map retention R(60)=0.60).  Use
+    :func:`uncalibrated_defaults` for the legacy per-step paper values.
     """
 
-    beta_M: float = 0.65      # map-fade rate (per unit age)
+    beta_M: float = 0.0169    # calibrated map-fade (cumulative R(60)=0.60)
     sigma_M: float = 0.08     # map-fade process-noise scale
-    sigma_g: float = 0.30     # ghost position-drift scale (cells)
+    sigma_g: float = 3.52     # calibrated ghost drift (≈10 cell RMSE @ τ=60)
+
+
+def calibrated_defaults(tau_ref: int = 60,
+                        ghost_rmse_cells: float = 10.0,
+                        map_retention: float = 0.60,
+                        rng=None) -> StalenessParams:
+    """Return fully calibrated staleness parameters (recommended for all studies)."""
+    sigma_g = calibrate_ghost_sigma(ghost_rmse_cells, tau_ref=tau_ref, rng=rng)
+    beta_M = calibrate_map_fade(map_retention, tau_ref=tau_ref)
+    return StalenessParams(beta_M=beta_M, sigma_M=0.08, sigma_g=sigma_g)
+
+
+def uncalibrated_defaults() -> StalenessParams:
+    """Legacy per-step paper defaults (β_M=0.65, σ_g=0.30) — not for MC studies."""
+    return StalenessParams(beta_M=0.65, sigma_M=0.08, sigma_g=0.30)
 
 
 def age_of(step_in_interval: int, tau: int) -> float:

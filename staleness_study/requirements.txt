@@ -2,7 +2,7 @@ numpy>=1.24
 matplotlib>=3.7
 scipy>=1.10
 networkx>=3.0
-# Optional — for real YOLO / MLP weights:
-# torch>=2.0
-# ultralytics>=8.0
-# opencv-python>=4.8
+thop>=0.1.1
+ultralytics>=8.0
+# Optional — ARIMA forecaster baseline:
+# statsmodels>=0.14

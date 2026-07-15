@@ -13,9 +13,10 @@ python run_closed_loop.py              # closed-loop sensing-to-planning (N=50)
 python run_closed_loop.py --quick      # closed-loop smoke test
 python3 run_sensitivity_study.py       # map sensitivity analysis (N=50)
 python3 run_sensitivity_study.py --quick
+python3 run_critical_fixes.py --quick   # review checklist (Table II, baselines, closed-loop)
 ```
 
-See [CLOSED_LOOP.md](CLOSED_LOOP.md) and [SENSITIVITY.md](SENSITIVITY.md).
+See [CLOSED_LOOP.md](CLOSED_LOOP.md), [SENSITIVITY.md](SENSITIVITY.md), and [CRITICAL_FIXES.md](CRITICAL_FIXES.md).
 
 Outputs land in `output/`:
 | File | Content |

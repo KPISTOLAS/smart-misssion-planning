@@ -21,7 +21,7 @@ deterministic given a seed, for reproducibility.
 """
 
 from .channel import NTNChannel, LINK_PRESETS
-from .staleness import StalenessModel, StalenessParams, calibrate_ghost_sigma, calibrate_map_fade
+from .staleness import StalenessModel, StalenessParams, calibrated_defaults, calibrate_ghost_sigma, calibrate_map_fade
 from .environment import PriorityField, build_priority_field
 from .planner import IUEFEMPlanner, PlannerOptions
 from .mission import MissionConfig, run_mission, SyncPolicy
@@ -34,6 +34,7 @@ __all__ = [
     "LINK_PRESETS",
     "StalenessModel",
     "StalenessParams",
+    "calibrated_defaults",
     "calibrate_ghost_sigma",
     "calibrate_map_fade",
     "PriorityField",

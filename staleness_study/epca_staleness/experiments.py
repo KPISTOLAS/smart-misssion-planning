@@ -21,6 +21,7 @@ from .environment import build_priority_field
 from .mission import MissionConfig, MissionResult, SyncPolicy, run_mission
 from .staleness import (
     StalenessParams,
+    calibrated_defaults,
     calibrate_ghost_sigma,
     calibrate_map_fade,
     interval_retention,
@@ -35,9 +36,8 @@ def default_params(tau_ref: int = 60,
                    map_retention: float = 0.60,
                    rng=None) -> StalenessParams:
   """Return calibrated degradation parameters for the reference interval."""
-  sigma_g = calibrate_ghost_sigma(ghost_rmse_cells, tau_ref=tau_ref, rng=rng)
-  beta_M = calibrate_map_fade(map_retention, tau_ref=tau_ref)
-  return StalenessParams(beta_M=beta_M, sigma_M=0.08, sigma_g=sigma_g)
+  return calibrated_defaults(tau_ref=tau_ref, ghost_rmse_cells=ghost_rmse_cells,
+                             map_retention=map_retention, rng=rng)
 
 
 @dataclass
