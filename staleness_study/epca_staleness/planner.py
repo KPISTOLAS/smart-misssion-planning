@@ -14,7 +14,7 @@ class PlannerOptions:
     plan_mode: str = "blend"
     blend_gamma: float = 0.45
     lloyd_iterations: int = 40
-    max_targets: int = 260
+    max_targets: int = 500
 
 
 class IUEFEMPlanner:

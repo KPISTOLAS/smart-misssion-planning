@@ -110,6 +110,10 @@ def _partition_hotspots(field, W_est, starts, num_uav, opts: IUEFEMOptions):
     if idx.shape[0] == 0:
         return idx, np.zeros(0, dtype=int)
 
+    if idx.shape[0] > opts.max_targets:
+        vals = W_est[idx[:, 0], idx[:, 1]]
+        idx = idx[np.argsort(-vals)[: opts.max_targets]]
+
     wgt = _target_weights(W_est, field.sigma, field.H, idx, opts)
     eta = opts.eta if opts.use_balancing else 0.0
     assigns = balanced_hotspot_assign(

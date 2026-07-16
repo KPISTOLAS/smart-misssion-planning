@@ -17,7 +17,13 @@
   "kappa_ratio_80_40": 2.0256410256410255,
   "p_out_per_class": {
     "good": 0.0,
-    "medium": 0.00155,
-    "poor": 0.03825
-  }
+    "medium": 0.0076,
+    "poor": 0.3667
+  },
+  "gamma_th_per_class": {
+    "good": 0.0,
+    "medium": 6.0,
+    "poor": 12.0
+  },
+  "aoi_surface_finding": "link outage materially inflates mean AoI"
 }

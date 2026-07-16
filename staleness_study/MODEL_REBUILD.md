@@ -49,9 +49,9 @@ Mission loop reports **pre-deconfliction** and **post-deconfliction** collision 
 | 5 Congestion wired into insertion score | Done + test |
 | 6 ST deconfliction | Done (mission loop) |
 | 7 R3 A/B/C sub-modes | Pending |
-| 8 Budget metrics / quantile sweep | Pending |
+| 8 Budget metrics / quantile sweep | Done (SNR CDF + AoI surface) |
 | 9 Stats harness on all tables | Module done; wire to exports |
-| 10 Link budget | Done |
+| 10 Link budget | Done (corrected SNR, LMS sweep, NTN coupling) |
 | 11 AoI threshold baseline | Pending |
 | 12 Manifest | Done |
 | 13 YOLO re-profile | Pending |

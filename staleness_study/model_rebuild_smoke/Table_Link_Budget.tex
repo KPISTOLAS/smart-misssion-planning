@@ -1,14 +1,16 @@
 \begin{table}[t]
 \centering
-\caption{NTN link budget by link class (2\,GHz, 10\,MHz, $h_{\mathrm{sat}}=600$\,km).}
+\caption{NTN link budget by link class (2\,GHz, 10\,MHz, $h_{\mathrm{sat}}=600$\,km). SNR $=$ EIRP $-$ $L_{\mathrm{FSPL}}$ $+$ $G/T$ $+$ $k_0$ $-$ $10\log_{10}(B)$ $+$ fading $-$ $L_{\mathrm{LMS}}$ $-$ $L_{\mathrm{impl}}$ $-$ $L_{\mathrm{atm}}$.}
 \label{tab:link_budget}
-\begin{tabular}{lcccc}
+\begin{tabular}{lcccccc}
 \toprule
-Class & $\theta$ range ($^\circ$) & Mean SNR (dB) & $p_{\mathrm{out}}$ & Implied $\bar{\tau}$ (steps) \\
+Class & $\theta$ ($^\circ$) & MCS / $\gamma_{\mathrm{th}}$ (dB) & $L_{\mathrm{atm+scin}}$ (dB) & $L_{\mathrm{impl}}$ (dB) & Mean SNR (dB) & $p_{\mathrm{out}}$ \\
 \midrule
-good & [55, 90] & 21.0 & 0.000 & 320 \\
-medium & [30, 70] & 18.7 & 0.002 & 320 \\
-poor & [10, 40] & 14.0 & 0.038 & 200 \\
+good & [55, 90] & QPSK (γ_th=0 dB) & 0.5 & 1.0 & 48.6 & 0.000 \\
+medium & [20, 70] & 16-QAM (γ_th=6 dB) & 1.5 & 2.0 & 39.5 & 0.008 \\
+poor & [5, 40] & 64-QAM (γ_th=12 dB) & 3.0 & 3.5 & 18.0 & 0.367 \\
+\midrule
+\multicolumn{7}{l}{\footnotesize Shadow: TR\,38.811 suburban LMS (LOS/shadow/blocked) + canopy blockage; see \texttt{link\_budget.json} for mixture fractions.} \\
 \bottomrule
 \end{tabular}
 \end{table}

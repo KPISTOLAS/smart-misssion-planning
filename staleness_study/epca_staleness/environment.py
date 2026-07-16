@@ -7,7 +7,9 @@ MATLAB ``MapGenerator.m``:
   * sensing uncertainty ``sigma in (0, 1]``,
   * binary obstacle mask,
   * obstacle-proximity penalty ``O in [0, 1]``,
-  * composite IoT priority weight ``W = alpha*H + beta*sigma - gamma*O``,
+  * composite IoT priority weight ``W = alpha*H + beta*sigma - gamma*O + hotspot``,
+    where ``H in {0,...,4}`` (not unit-normalized), ``sigma,O in [0,1]``, and
+    clustered Gaussian hotspots add 3--9 to ``W`` on peak cells,
   * high-priority (hotspot) mask ``H >= high_health_thr``.
 
 Defaults reproduce the paper's baseline: a 50x50 grid with 3 UAVs and a
@@ -176,7 +178,8 @@ def build_priority_field(N: int = 50,
         hotspot += amp * np.exp(-((ii - pr) ** 2 + (jj - pc) ** 2) / (2 * wid ** 2))
     hotspot[obstacle] = 0.0
 
-    W = alpha * H + beta * sigma - gamma * O + hotspot
+    W_base = alpha * H + beta * sigma - gamma * O
+    W = W_base + hotspot
 
     # Sparse, clustered hotspots: top `hotspot_frac` of traversable cells by W.
     trav = ~obstacle
@@ -197,7 +200,40 @@ def build_priority_field(N: int = 50,
     return PriorityField(
         N=N, M=M, dx=dx, H=H, sigma=sigma, obstacle=obstacle, O=O, W=W,
         high_mask=high_mask, Z_m=Z_m,
-        meta=dict(alpha=alpha, beta=beta, gamma=gamma, high_health_thr=high_health_thr,
-                  tree_density=tree_density, seed=seed, hotspot_frac=hotspot_frac,
-                  w_hi=w_hi),
+        meta=dict(
+            alpha=alpha, beta=beta, gamma=gamma, high_health_thr=high_health_thr,
+            tree_density=tree_density, seed=seed, hotspot_frac=hotspot_frac,
+            w_hi=w_hi,
+            W_min=float(W[trav].min()) if trav.any() else 0.0,
+            W_max=float(W[trav].max()) if trav.any() else 0.0,
+            W_base_min=float(W_base[trav].min()) if trav.any() else 0.0,
+            W_base_max=float(W_base[trav].max()) if trav.any() else 0.0,
+            H_norm_range=[0.0, 1.0],
+            sigma_range=[0.0, 1.0],
+            O_range=[0.0, 1.0],
+            normalization_note=(
+                "W uses H in {0..4} and hotspot bumps; only sigma,O are in [0,1]. "
+                "Planner thresholds use quantile w_hi on raw W, not unit cube."
+            ),
+        ),
     )
+
+
+def priority_field_W_stats(seed: int = 42) -> dict:
+    """Report observed W range at a fixed seed (for manifest / hyperparam tables)."""
+    field = build_priority_field(seed=seed)
+    trav = field.traversable
+    W = field.W[trav]
+    Hn = field.H[trav] / 4.0
+    return {
+        "seed": seed,
+        "W_min": float(W.min()),
+        "W_max": float(W.max()),
+        "w_hi": float(field.meta.get("w_hi", 0.0)),
+        "H_norm_min": float(Hn.min()),
+        "H_norm_max": float(Hn.max()),
+        "sigma_min": float(field.sigma[trav].min()),
+        "sigma_max": float(field.sigma[trav].max()),
+        "O_min": float(field.O[trav].min()),
+        "O_max": float(field.O[trav].max()),
+    }

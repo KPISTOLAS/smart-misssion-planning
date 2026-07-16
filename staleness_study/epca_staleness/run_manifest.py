@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from epca_staleness.environment import priority_field_W_stats
 from epca_staleness.iuef_em import IUEFEMOptions
 from epca_staleness.staleness import calibrated_defaults, emit_calibration_report
 
@@ -38,6 +39,7 @@ def build_manifest(seed_list: list[int] | None = None,
     """Collect every tunable parameter for a study run."""
     opts = IUEFEMOptions()
     params = calibrated_defaults()
+    w_stats = priority_field_W_stats(seed=42)
     manifest = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(),
@@ -46,22 +48,34 @@ def build_manifest(seed_list: list[int] | None = None,
         "numpy_version": np.__version__,
         "torch_version": _pkg_version("torch"),
         "ultralytics_version": _pkg_version("ultralytics"),
-        # Planner weights (Algorithm 1 / Eq. 1)
-        "w_T": 1.0,
-        "w_E": 0.3,
-        "w_C": 0.2,
-        "w_P": 0.5,
+        # Composite priority field (Eq. weight): W = αH + βσ − γO + hotspot
+        "alpha": 1.0,
+        "beta": 0.55,
+        "gamma": 0.32,
+        "W_stats_seed_42": w_stats,
+        "W_normalization": (
+            "H in {0..4} (use H/4 for [0,1]); sigma,O in [0,1]; "
+            "hotspot Gaussians add 3-9 on peak cells so raw W is not in [0,1]. "
+            "w_hi is a traversable quantile on raw W."
+        ),
+        # Insertion score (Algorithm 1): ratio form implemented in iuef_em.py
+        "insertion_score_formula": "score(g) = W_g / Delta_L(g|pi_u) - kappa_d * O_g",
+        "kappa_w": 1.0,
+        "kappa_e": 0.0,
+        "kappa_d": opts.lambda_cong,
+        "insertion_note": (
+            "kappa_w=1 and kappa_e=0: ordering is priority-over-distance minus "
+            "congestion penalty; blend_gamma applies to target weights g_w only."
+        ),
+        "blend_gamma": opts.blend_gamma,
         "eta": opts.eta,
-        "kappa_w": opts.blend_gamma,
-        "kappa_d": 0.12,
-        "kappa_e": 0.12,
         "omega_d": 0.45,
         "omega_s": 0.35,
-        "omega_h": opts.lambda_slope,   # reconciled: lambda_slope ≡ omega_h
+        "omega_h": opts.lambda_slope,
         "tau_prune": opts.horizon_cells,
-        "lambda_blend": opts.blend_gamma,
         "lambda_cong": opts.lambda_cong,
         "H_c": opts.horizon_cells,
+        "N_tgt_max": opts.max_targets,
         "d_safe_m": 25.0,
         "dx_m": 18.0,
         "dt_s": 1.0,

@@ -34,7 +34,13 @@ def main():
     print(f"Model rebuild study (N={n_mc}, smoke={quick})")
     emit_calibration_report(out / "calibration_report.json")
     write_run_manifest(out, seed_list=list(range(1000, 1000 + n_mc)))
-    link_budget.emit_link_budget(out)
+    budget = link_budget.emit_link_budget(out)
+    from epca_staleness.channel import sync_presets_from_budget
+    sync_presets_from_budget(budget)
+    print(f"  Link budget: good SNR={budget['classes']['good']['mean_snr_db']:.1f} dB, "
+          f"p_out={budget['classes']['good']['p_out']:.3f}")
+    if "aoi_surface" in budget:
+        print(f"  AoI finding: {budget['aoi_surface']['finding']}")
 
     print("  Core staleness sweeps ...")
     run_full_study(out / "staleness", n_mc=n_mc, quick=quick)

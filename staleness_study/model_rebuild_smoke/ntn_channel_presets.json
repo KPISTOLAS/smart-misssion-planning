@@ -1,0 +1,23 @@
+{
+  "good": {
+    "base_tau": 20.0,
+    "p_outage": 0.0,
+    "gamma_th_db": 0.0,
+    "outage_scale": 0.8,
+    "implied_tau_bar_steps": 20.0
+  },
+  "medium": {
+    "base_tau": 45.0,
+    "p_outage": 0.0076,
+    "gamma_th_db": 6.0,
+    "outage_scale": 1.2367572480000002,
+    "implied_tau_bar_steps": 45.861547762998796
+  },
+  "poor": {
+    "base_tau": 80.0,
+    "p_outage": 0.3667,
+    "gamma_th_db": 12.0,
+    "outage_scale": 5.4084160080000006,
+    "implied_tau_bar_steps": 195.80609505763462
+  }
+}
