@@ -18,7 +18,7 @@ import numpy as np
 from .environment import build_priority_field
 from .executor import ExecConfig, MissionMetrics, evaluate_planner
 from .registry import ABLATION_PLANNERS, BASELINE_PLANNERS, PLANNER_REGISTRY
-from .staleness import StalenessParams, interval_retention, kappa
+from .staleness import StalenessParams, retention
 from .experiments import default_params as staleness_default_params
 
 
@@ -81,9 +81,8 @@ def aggregate(metrics: list[MissionMetrics]) -> AggregateStats:
 
 def degraded_belief(field, tau: float, params: StalenessParams, rng) -> np.ndarray:
     """Stale priority field at mean interval tau (for planner input W_est)."""
-    R = interval_retention(params.beta_M, tau)
-    k = float(kappa(max(tau, 1.0)))
-    noise = rng.normal(0.0, params.sigma_M * np.sqrt(max(k, 0.0)), size=field.W.shape)
+    R = retention(tau, params.beta_M)
+    noise = rng.normal(0.0, params.sigma_M * np.sqrt(max(tau, 0.0)), size=field.W.shape)
     return np.maximum(0.0, field.W * R + noise)
 
 

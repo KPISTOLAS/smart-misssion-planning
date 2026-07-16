@@ -38,7 +38,8 @@ from enum import Enum
 import numpy as np
 
 from .channel import NTNChannel
-from .staleness import StalenessModel, StalenessParams, kappa, interval_retention
+from .staleness import StalenessModel, StalenessParams, retention
+from .deconflict import SpaceTimeReservation, apply_spacetime_hold, pairwise_collision_rate
 from .registry import build_plan as build_planner_plan
 from .planning_utils import pick_depots
 from .planner import IUEFEMPlanner, PlannerOptions
@@ -76,38 +77,25 @@ class MissionConfig:
 @dataclass
 class MissionResult:
     hpc_pct: float
-    collision_rate: float
+    collision_rate: float           # post-deconfliction (executed)
     near_miss_rate: float
-    uplink_cost: float               # syncs per step (average uplink rate)
+    collision_rate_pre: float       # planner intent (no ST hold)
+    near_miss_rate_pre: float
+    uplink_cost: float
     n_syncs: int
     mean_tau: float
     mean_age: float
-    retained_high_frac: float        # mean fraction of hotspots kept in belief
+    retained_high_frac: float
     steps: int
 
 
-def _plan_belief(field, staleness: StalenessModel, tau_plan: float):
-    """Ground-truth priority field degraded over the *planned* interval.
-
-    The plan made at a sync must serve the upcoming interval of length
-    ``tau_plan`` (the sampled channel interval for PERIODIC, or the age cap for
-    ADAPTIVE).  We apply the *cumulative* interval retention ``R(tau_plan)``
-    (monotone-decreasing in the interval length) plus map process noise scaled
-    by the mean AoI ``kappa(tau_plan)``.  Shorter planned intervals therefore
-    retain more hotspots - this is how an adaptive policy that syncs early can
-    plan on fresher data.
-    """
-    R = interval_retention(staleness.params.beta_M, tau_plan)
-    k = float(kappa(max(tau_plan, 1.0)))
-    p = staleness.params
-    noise = staleness.rng.normal(0.0, p.sigma_M * np.sqrt(max(k, 0.0)), size=field.W.shape)
-    belief = field.W * R + noise
-    return np.maximum(0.0, belief)
+def _plan_belief(W_sync: np.ndarray, staleness: StalenessModel, tau_plan: float):
+    """Degrade last-synced map for planning over upcoming interval ``tau_plan``."""
+    return staleness.degraded_map(W_sync, tau_plan)
 
 
-def _predicted_retention(field, tau_ref: float, params: StalenessParams) -> float:
-    """Predicted cumulative retention of hotspot weight over the interval."""
-    return interval_retention(params.beta_M, max(tau_ref, 1.0))
+def _predicted_retention(delta: float, params: StalenessParams) -> float:
+    return retention(max(delta, 0.0), params.beta_M)
 
 
 def run_mission(field,
@@ -165,8 +153,9 @@ def run_mission(field,
     else:
         tau_plan_init = tau_ref * config.adapt_tau_plan_factor
 
-    # Initial plan on a fresh sync.
-    belief = _plan_belief(field, staleness, tau_plan_init)
+    # Initial sync: belief from ground truth at t=0.
+    W_synced = field.W.copy()
+    belief = _plan_belief(W_synced, staleness, tau_plan_init)
     plan = _make_plan(belief, starts)
     paths = [list(seg) for seg in plan["segments"]]
     path_idx = [0] * U
@@ -185,7 +174,12 @@ def run_mission(field,
     age_series = []
     collision_steps = 0
     near_miss_steps = 0
+    collision_steps_pre = 0
+    near_miss_steps_pre = 0
     retained_fracs = []
+    st_res = SpaceTimeReservation(horizon=config.horizon, n_rows=N, n_cols=M)
+    for u, seg in enumerate(paths):
+        st_res.reserve_path(u, seg, start_t=0)
 
     high_mask = field.high_mask
     n_high = max(1, int(np.count_nonzero(high_mask)))
@@ -193,13 +187,9 @@ def run_mission(field,
     d_safe_cells = config.d_safe_m / dx
     d_near_cells = config.d_near_m / dx
 
-    # Peak-AoI cap: during a channel outage a *periodic* policy can run far past
-    # tau_ref, so we let the normalized age grow beyond 1 (staleness keeps
-    # worsening) up to a generous safety cap.  An adaptive policy avoids this by
-    # forcing a sync at its age threshold.
-    AGE_CAP = 4.0
+    # Absolute age Δ_k (integer steps since sync); no normalization by τ.
     for t in range(config.horizon):
-        age = min(AGE_CAP, steps_since_sync / max(tau_ref, 1.0))
+        age = steps_since_sync
 
         # ---- synchronization decision -----------------------------------
         do_sync = False
@@ -207,7 +197,7 @@ def run_mission(field,
             if config.policy is SyncPolicy.PERIODIC:
                 do_sync = steps_since_sync >= tau
             else:  # ADAPTIVE
-                pred_drop = 1.0 - _predicted_retention(field, max(steps_since_sync, 1), staleness_params)
+                pred_drop = 1.0 - _predicted_retention(steps_since_sync, staleness_params)
                 do_sync = (steps_since_sync >= config.adapt_age_steps) or \
                           (pred_drop >= config.adapt_retention_drop)
 
@@ -222,9 +212,13 @@ def run_mission(field,
                 tau_plan = tau
             else:
                 tau_plan = tau_ref * config.adapt_tau_plan_factor
-            belief = _plan_belief(field, staleness, tau_plan)
+            W_synced = field.W.copy()
+            belief = _plan_belief(W_synced, staleness, tau_plan)
             plan = _make_plan(belief, starts)
             paths = [list(seg) for seg in plan["segments"]]
+            st_res = SpaceTimeReservation(horizon=config.horizon, n_rows=N, n_cols=M)
+            for u, seg in enumerate(paths):
+                st_res.reserve_path(u, seg, start_t=t)
             # Resume each path near the UAV's current cell (closest waypoint).
             path_idx = []
             for u in range(U):
@@ -232,30 +226,35 @@ def run_mission(field,
                 d = np.hypot(seg[:, 0] - positions[u, 0], seg[:, 1] - positions[u, 1])
                 path_idx.append(int(np.argmin(d)))
 
-        # Track belief retention over hotspots (reporting): fraction of true
-        # hotspots whose faded belief still exceeds the targeting threshold.
+        # Belief fades from last-synced truth (no compounding).
+        belief = staleness.degraded_map(W_synced, age)
         w_hi = field.meta.get("w_hi", field.meta.get("high_health_thr", 3)
                               * field.meta.get("alpha", 1.0) * 0.55)
         retained_fracs.append(float(np.mean(belief[high_mask] >= w_hi)))
 
-        # ---- ghost (stale) teammate positions ---------------------------
-        ghosts = staleness.ghost_positions(last_synced_positions, age, int(round(tau_ref)))
+        ghosts = staleness.ghost_positions(last_synced_positions, age)
 
-        # ---- move each UAV one step along its path w/ reactive avoidance --
+        # ---- move each UAV: pre-deconfliction intent then ST hold ----------
+        positions_pre = positions.copy()
         for u in range(U):
             seg = paths[u]
             if path_idx[u] >= len(seg) - 1:
-                continue  # reached end of assigned path -> idle
+                continue
             nxt = seg[path_idx[u] + 1]
-            # Predicted min distance to any teammate using GHOST beliefs.
-            hold = False
-            for v in range(U):
-                if v == u:
-                    continue
-                dgc = np.hypot(nxt[0] - ghosts[v, 0], nxt[1] - ghosts[v, 1])
-                if dgc < config.d_avoid_cells:
-                    hold = True
-                    break
+            positions_pre[u] = [nxt[0], nxt[1]]
+
+        coll_pre, near_pre = pairwise_collision_rate(
+            positions_pre, U, d_safe_cells, d_near_cells)
+        collision_steps_pre += int(coll_pre)
+        near_miss_steps_pre += int(near_pre)
+
+        for u in range(U):
+            seg = paths[u]
+            if path_idx[u] >= len(seg) - 1:
+                continue
+            nxt = seg[path_idx[u] + 1]
+            hold = apply_spacetime_hold(
+                u, t, tuple(nxt), ghosts, st_res, config.d_avoid_cells)
             if not hold:
                 positions[u] = [nxt[0], nxt[1]]
                 path_idx[u] += 1
@@ -263,18 +262,8 @@ def run_mission(field,
                 if 0 <= r < N and 0 <= c < M and trav[r, c]:
                     visited[r, c] = True
 
-        # ---- true collision / near-miss check ---------------------------
-        collided = False
-        near = False
-        for a in range(U):
-            for b in range(a + 1, U):
-                d = np.hypot(positions[a, 0] - positions[b, 0],
-                             positions[a, 1] - positions[b, 1])
-                if d < d_safe_cells:
-                    collided = True
-                if d < d_near_cells:
-                    near = True
-        collision_steps += int(collided)
+        coll, near = pairwise_collision_rate(positions, U, d_safe_cells, d_near_cells)
+        collision_steps += int(coll)
         near_miss_steps += int(near)
 
         age_series.append(age)
@@ -286,6 +275,8 @@ def run_mission(field,
         hpc_pct=float(hpc),
         collision_rate=float(collision_steps / steps),
         near_miss_rate=float(near_miss_steps / steps),
+        collision_rate_pre=float(collision_steps_pre / steps),
+        near_miss_rate_pre=float(near_miss_steps_pre / steps),
         uplink_cost=float(n_syncs / steps),
         n_syncs=int(n_syncs),
         mean_tau=float(np.mean(tau_samples)),

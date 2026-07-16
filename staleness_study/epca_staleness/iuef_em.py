@@ -72,7 +72,8 @@ def _target_weights(W_est, sigma, H, idx, opts: IUEFEMOptions) -> np.ndarray:
     return w if w.any() else nh
 
 
-def _weighted_order(start, goals: np.ndarray, gw: np.ndarray, use_priority: bool) -> np.ndarray:
+def _weighted_order(start, goals: np.ndarray, gw: np.ndarray, use_priority: bool,
+                    O: np.ndarray | None = None, lambda_cong: float = 0.35) -> np.ndarray:
     """Priority-biased nearest-neighbour tour through regional hotspots."""
     ng = goals.shape[0]
     if ng == 0:
@@ -84,7 +85,10 @@ def _weighted_order(start, goals: np.ndarray, gw: np.ndarray, use_priority: bool
         cand = np.where(unvisited)[0]
         dist = np.hypot(goals[cand, 0] - cur[0], goals[cand, 1] - cur[1])
         if use_priority:
-            score = gw[cand] / np.maximum(dist, 0.5)
+            cong = 0.0
+            if O is not None:
+                cong = lambda_cong * O[goals[cand, 0].astype(int), goals[cand, 1].astype(int)]
+            score = gw[cand] / np.maximum(dist, 0.5) - cong
         else:
             score = -dist
         pick = cand[int(np.argmax(score))]
@@ -150,7 +154,8 @@ def build_iuef_em_plan(field, W_est: np.ndarray, num_uav: int,
                              lambda_cong=lam_cong)
             segments.append(seg if seg else [tuple(starts[u])])
             continue
-        ordered = _weighted_order(starts[u], goals.astype(float), gw, opts.use_priority)
+        ordered = _weighted_order(starts[u], goals.astype(float), gw, opts.use_priority,
+                                  O=O, lambda_cong=lam_cong)
         path = stitch_goals(trav, starts[u], ordered, O=O, Z=Z,
                             use_astar=opts.use_astar, lambda_cong=lam_cong)
         # Ensure every goal cell appears on the path (shortcut must not skip hotspots).

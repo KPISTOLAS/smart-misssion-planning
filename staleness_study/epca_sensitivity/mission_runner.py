@@ -9,7 +9,7 @@ from epca_staleness.channel import NTNChannel
 from epca_staleness.environment import PriorityField
 from epca_staleness.iuef_em import IUEFEMOptions, build_iuef_em_plan
 from epca_staleness.planning_utils import pick_depots
-from epca_staleness.staleness import StalenessModel, StalenessParams, kappa, interval_retention
+from epca_staleness.staleness import StalenessModel, StalenessParams, retention
 from epca_staleness.mission import SyncPolicy
 from epca_staleness.executor import ExecConfig, execute_plan
 
@@ -50,11 +50,8 @@ class SensitivityMissionResult:
     seed: int = 0
 
 
-def _plan_belief(W: np.ndarray, staleness: StalenessModel, tau_plan: float) -> np.ndarray:
-    R = interval_retention(staleness.params.beta_M, tau_plan)
-    k = float(kappa(max(tau_plan, 1.0)))
-    noise = staleness.rng.normal(0.0, staleness.params.sigma_M * np.sqrt(max(k, 0.0)), size=W.shape)
-    return np.maximum(0.0, W * R + noise)
+def _plan_belief(W_sync: np.ndarray, staleness: StalenessModel, tau_plan: float) -> np.ndarray:
+    return staleness.degraded_map(W_sync, tau_plan)
 
 
 def run_sensitivity_mission(field: PriorityField,
@@ -112,10 +109,8 @@ def run_sensitivity_mission(field: PriorityField,
     n_high = max(1, int(field.high_mask.sum()))
     d_safe_c = mission_cfg.d_safe_m / dx
     d_near_c = mission_cfg.d_near_m / dx
-    AGE_CAP = 4.0
-
     for t in range(mission_cfg.horizon):
-        age = min(AGE_CAP, steps_since_sync / max(tau_ref, 1.0))
+        age = steps_since_sync
         do_sync = t > 0 and steps_since_sync >= tau
 
         if do_sync:
@@ -141,7 +136,7 @@ def run_sensitivity_mission(field: PriorityField,
                 path_idx.append(int(np.argmin(d)))
 
         ghosts = (last_synced if mission_cfg.disable_staleness
-                  else staleness.ghost_positions(last_synced, age, int(round(tau_ref))))
+                  else staleness.ghost_positions(last_synced, age))
 
         for u in range(U):
             seg = paths[u]

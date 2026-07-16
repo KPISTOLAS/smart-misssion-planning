@@ -3,7 +3,7 @@
 Three explicit evaluation regimes (must be reported separately in tables/figures):
 
   R1 — Planner-perfect: ground-truth W, no staleness (planning upper bound).
-  R2 — Staleness-moderate: full mission loop, τ̄ ∈ {40, 50, 60}, ghost drift + map fade.
+  R2 — Staleness-moderate: full mission loop, τ̄ ∈ {5,10,20,40,80,160,320}.
   R3 — Closed-loop: Tier-2 inference + staleness + replanning.
 """
 
@@ -21,6 +21,7 @@ from .mission import MissionConfig, SyncPolicy, run_mission
 from .channel import NTNChannel
 from .experiments import sweep_tau, operating_bounds, _ci95
 from .planner_evaluation import ablation_study, baseline_comparison, AggregateStats
+from .sweep_config import TAU_SWEEP_GRID, TAU_SWEEP_QUICK, TAU_SWEEP_N_MC, TAU_SWEEP_N_MC_SMOKE
 from .staleness import calibrated_defaults
 
 
@@ -39,6 +40,7 @@ class StalenessAblationStats:
     hpc_lo: float
     hpc_hi: float
     collision_mean: float
+    collision_pre_mean: float
     near_miss_mean: float
     uplink_mean: float
     retained_mean: float
@@ -55,6 +57,7 @@ def _aggregate_mission(trials, planner: str, tau_bar: float) -> StalenessAblatio
         planner=planner, tau_bar=tau_bar,
         hpc_mean=m, hpc_std=s, hpc_lo=lo, hpc_hi=hi,
         collision_mean=float(np.mean([t.collision_rate for t in trials])),
+        collision_pre_mean=float(np.mean([getattr(t, "collision_rate_pre", t.collision_rate) for t in trials])),
         near_miss_mean=float(np.mean([t.near_miss_rate for t in trials])),
         uplink_mean=float(np.mean([t.uplink_cost for t in trials])),
         retained_mean=float(np.mean([t.retained_high_frac for t in trials])),
@@ -91,7 +94,7 @@ def ablation_staleness_sweep(tau_values=None,
                              n_mc: int = 50,
                              seed_base: int = 12000) -> dict[float, dict[str, StalenessAblationStats]]:
     if tau_values is None:
-        tau_values = [40.0, 50.0, 60.0]
+        tau_values = list(TAU_SWEEP_GRID)
     return {tau: ablation_under_staleness(tau, n_mc, seed_base + int(tau * 10))
             for tau in tau_values}
 
@@ -124,7 +127,7 @@ def run_regime_r2(n_mc: int = 50, tau_values=None) -> dict:
     sweep = ablation_staleness_sweep(tau_values, n_mc)
     return {
         "regime": Regime.R2_STALENESS_MODERATE.value,
-        "description": "Full staleness mission loop, τ̄ ∈ {40,50,60}",
+        "description": f"Full staleness mission loop, τ̄ ∈ {list(TAU_SWEEP_GRID)}",
         "tau_sweep": {
             str(int(tau)): {k: asdict(v) for k, v in planners.items()}
             for tau, planners in sweep.items()
@@ -191,15 +194,15 @@ def build_operating_envelope(n_mc: int = 50, quick: bool = False) -> dict:
         sweep_hotspot_density, sweep_fleet_size, ExperimentConfig,
     )
 
-    tau_grid = np.array([15, 20, 30, 40, 50, 60, 75, 90], dtype=float)
-    env_mc = 8 if quick else min(20, n_mc)
+    tau_grid = TAU_SWEEP_QUICK if quick else TAU_SWEEP_GRID
+    env_mc = TAU_SWEEP_N_MC_SMOKE if quick else min(TAU_SWEEP_N_MC, n_mc)
     exp = ExperimentConfig(n_mc=env_mc, tau_grid=tau_grid)
 
     envelope = {"criteria": {"hpc_min_pct": 65.0, "coll_max": 0.4},
                 "envelope_n_mc": env_mc, "bounds": []}
 
     # Link quality (staleness mission model)
-    link_tau = np.array([15, 25, 35, 45, 55, 65, 80, 100], dtype=float) if quick else tau_grid
+    link_tau = tau_grid
     params = calibrated_defaults()
     for link in ("good", "medium", "poor"):
         sw = sweep_tau(link, link_tau, env_mc, params)
@@ -251,15 +254,15 @@ def run_publication_study(out_dir: Path,
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     if quick:
-        n_mc = min(n_mc, 10)
+        n_mc = min(n_mc, TAU_SWEEP_N_MC_SMOKE)
 
     summary = dict(n_mc=n_mc, quick=quick)
 
     print("  R1 — planner-perfect regime ...")
     summary["R1"] = run_regime_r1(n_mc)
 
-    print("  R2 — ablation under moderate staleness (τ=40,50,60) ...")
-    summary["R2"] = run_regime_r2(n_mc, [40.0, 50.0, 60.0] if not quick else [50.0])
+    print("  R2 — ablation under staleness (extended τ̄ grid) ...")
+    summary["R2"] = run_regime_r2(n_mc, list(TAU_SWEEP_QUICK) if quick else list(TAU_SWEEP_GRID))
 
     print("  R3 — closed-loop regime ...")
     summary["R3"] = run_regime_r3(n_mc)

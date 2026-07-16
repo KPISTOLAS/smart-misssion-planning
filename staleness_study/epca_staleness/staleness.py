@@ -1,247 +1,211 @@
-"""Enhanced staleness / Age-of-Information degradation model for EPCA-M.
+"""Staleness / Age-of-Information model for EPCA-M (absolute-age formulation).
 
-Original paper model
---------------------
-* Age within a synchronization interval::
+Model (reviewer-corrected)
+--------------------------
+* **Age** is absolute steps since last sync (not normalized by τ)::
 
-      age(t) = (t mod tau) / tau                       # saw-tooth in [0, 1)
+      age(t) = Δ_k = steps since last synchronization event
 
-* Normalized average AoI::
+* **Mean AoI** over a periodic interval of length τ (ages 0 … τ−1)::
 
-      kappa(tau) = (tau - 1) / (2 tau)
+      κ(τ) = (τ − 1) / 2          # grows linearly with τ
 
-* Map (digital-twin priority field) fade::
+* **Map retention** (exponential fade from last synced truth, no compounding)::
 
-      M_hat_{t+1} = max(0, M_hat_t * (1 - beta_M * age(t))
-                            + N(0, sigma_M^2 * age(t)))
+      retention(Δ) = exp(−β_M · Δ)
+      M̂(Δ) = max(0, M_sync · retention(Δ) + N(0, σ_M² · Δ))
 
-* Ghost (other-UAV) position drift::
+  where ``M_sync`` is the priority field at the last sync (inference or truth).
 
-      p_tilde_{v,t} = p_{v,t} + N(0, sigma_g^2 * age(t) * log(1 + tau))
+* **Ghost drift** (2-D Brownian random walk in grid cells)::
 
-Enhancements in this module
----------------------------
-* ``tau`` is supplied *per synchronization event* by the NTN channel model, so
-  ``age(t)`` and ``log(1 + tau)`` use the *current* interval length.
-* Degradation parameters (beta_M, sigma_M, sigma_g) are **calibratable** to hit
-  a target ghost RMSE (cells) or map-fade retention at a reference age/interval.
-* The model is vectorized over the whole priority grid and over UAVs.
+      p̃ = p + N(0, σ_g² · Δ)   per coordinate
+      RMSE(Δ) = σ_g · √(2Δ)    (Euclidean, cells)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 import numpy as np
+
+
+# Reference calibration targets (solved, not tuned to legacy broken outputs)
+R_TARGET = 0.60
+DELTA_REF = 60
+GHOST_RMSE_TARGET_CELLS = 10.0
 
 
 @dataclass
 class StalenessParams:
-    """Degradation parameters for the EPCA-M staleness model.
+    """Degradation parameters for the absolute-age staleness model."""
 
-    Defaults are **calibrated** for cumulative-interval operation at τ_ref=60
-    (ghost RMSE ≈ 10 cells, map retention R(60)=0.60).  Use
-    :func:`uncalibrated_defaults` for the legacy per-step paper values.
+    beta_M: float = 0.008510641896545124   # −ln(0.60)/60
+    sigma_M: float = 0.08
+    sigma_g: float = 0.9128709291755658    # 10 / √(2·60)
+
+
+def retention(delta: float, beta_M: float) -> float:
+    """Exponential map retention ``exp(−β_M · Δ)``."""
+    return float(np.exp(-beta_M * max(float(delta), 0.0)))
+
+
+def age_of(step_in_interval: int, tau: int | None = None) -> int:
+    """Absolute AoI: integer steps since last sync (Δ_k).
+
+    ``tau`` is accepted for API compatibility but not used — age is never
+    normalized by the interval length.
     """
-
-    beta_M: float = 0.0169    # calibrated map-fade (cumulative R(60)=0.60)
-    sigma_M: float = 0.08     # map-fade process-noise scale
-    sigma_g: float = 3.52     # calibrated ghost drift (≈10 cell RMSE @ τ=60)
+    return max(int(step_in_interval), 0)
 
 
-def calibrated_defaults(tau_ref: int = 60,
-                        ghost_rmse_cells: float = 10.0,
-                        map_retention: float = 0.60,
+def kappa(tau) -> np.ndarray:
+    """Mean AoI over one interval when age is absolute: ``(τ−1)/2``."""
+    tau = np.asarray(tau, dtype=float)
+    return (tau - 1.0) / 2.0
+
+
+def calibrate_beta_M(target_retention: float = R_TARGET,
+                   delta_ref: float = DELTA_REF) -> float:
+    """Solve ``β_M = −ln(R_target) / Δ_ref``."""
+    if not (0.0 < target_retention < 1.0):
+        raise ValueError("target_retention must lie in (0, 1).")
+    return float(-np.log(target_retention) / max(float(delta_ref), 1.0))
+
+
+def calibrate_ghost_sigma(target_rmse_cells: float = GHOST_RMSE_TARGET_CELLS,
+                          delta_ref: float = DELTA_REF,
+                          n_mc: int = 40000,
+                          rng=None) -> float:
+    """Calibrate σ_g so RMSE(Δ_ref) = target (Brownian ghost model)."""
+    denom = np.sqrt(2.0 * max(float(delta_ref), 1.0))
+    sigma_g = float(target_rmse_cells / denom)
+    model = StalenessModel(StalenessParams(sigma_g=sigma_g), rng=rng)
+    true_pos = np.zeros((n_mc, 2))
+    ghosts = model.ghost_positions(true_pos, int(delta_ref))
+    emp = float(np.sqrt(np.mean(np.sum(ghosts ** 2, axis=1))))
+    if emp > 1e-9:
+        sigma_g *= target_rmse_cells / emp
+    return sigma_g
+
+
+def calibrated_defaults(delta_ref: int = DELTA_REF,
+                        ghost_rmse_cells: float = GHOST_RMSE_TARGET_CELLS,
+                        map_retention: float = R_TARGET,
                         rng=None) -> StalenessParams:
-    """Return fully calibrated staleness parameters (recommended for all studies)."""
-    sigma_g = calibrate_ghost_sigma(ghost_rmse_cells, tau_ref=tau_ref, rng=rng)
-    beta_M = calibrate_map_fade(map_retention, tau_ref=tau_ref)
+    """Return analytically calibrated staleness parameters."""
+    beta_M = calibrate_beta_M(map_retention, delta_ref)
+    sigma_g = calibrate_ghost_sigma(ghost_rmse_cells, delta_ref, rng=rng)
     return StalenessParams(beta_M=beta_M, sigma_M=0.08, sigma_g=sigma_g)
 
 
 def uncalibrated_defaults() -> StalenessParams:
-    """Legacy per-step paper defaults (β_M=0.65, σ_g=0.30) — not for MC studies."""
+    """Legacy paper defaults — retained only for regression comparison."""
     return StalenessParams(beta_M=0.65, sigma_M=0.08, sigma_g=0.30)
 
 
-def age_of(step_in_interval: int, tau: int) -> float:
-    """Saw-tooth AoI ``age = (t mod tau) / tau`` for ``t`` steps since last sync."""
-    if tau <= 0:
-        return 0.0
-    return (step_in_interval % tau) / float(tau)
-
-
-def kappa(tau) -> np.ndarray:
-    """Normalized average AoI ``(tau-1)/(2 tau)`` (scalar or array)."""
-    tau = np.asarray(tau, dtype=float)
-    return (tau - 1.0) / (2.0 * tau)
-
-
+# Back-compat alias (old name referred to cumulative integral model)
 def interval_retention(beta_M: float, tau: float, n_grid: int = 64) -> float:
-    """Cumulative belief retention across one synchronization interval.
-
-    Integrates the paper's multiplicative fade ``(1 - beta_M * age)`` over the
-    saw-tooth age ``age(s) = s/tau`` for ``s = 0 .. tau-1``.  In continuous form
-    this is ``R(tau) = exp( tau * integral_0^1 ln(1 - beta_M * x) dx )`` which is
-    *monotonically decreasing in tau* (longer intervals compound more fade),
-    unlike the single-shot ``kappa(tau)`` factor which saturates at 0.5.
-
-    The integral has the closed form
-    ``I(b) = -1 + ((1-b)/b) * (1 - ln(1-b))`` for ``0 < b < 1``.
-    A guarded numeric fallback is used near the boundaries.
-    """
-    b = float(np.clip(beta_M, 1e-9, 0.999999))
-    tau = max(float(tau), 1.0)
-    # Closed-form of \int_0^1 ln(1 - b x) dx = -1 - ((1-b)/b) * ln(1-b).
-    integral = -1.0 - ((1.0 - b) / b) * np.log(1.0 - b)
-    R = float(np.exp(tau * integral))
-    return float(np.clip(R, 0.0, 1.0))
+    """Deprecated alias → :func:`retention` with absolute age Δ = τ."""
+    return retention(tau, beta_M)
 
 
 class StalenessModel:
-    """Applies map fade and ghost-position drift given the current age / tau.
-
-    Parameters
-    ----------
-    params:
-        :class:`StalenessParams` controlling the degradation strength.
-    rng:
-        ``numpy.random.Generator`` or seed for reproducibility.
-    """
+    """Map fade and ghost drift under absolute age Δ (steps since sync)."""
 
     def __init__(self, params: StalenessParams | None = None, rng=None):
         self.params = params or StalenessParams()
         self.rng = np.random.default_rng(rng)
 
-    # ------------------------------------------------------------------ #
-    # Map fade
-    # ------------------------------------------------------------------ #
-    def fade_map(self, M_hat: np.ndarray, age: float) -> np.ndarray:
-        """One-step update of the estimated priority map (digital-twin fade).
-
-        Implements
-        ``M_hat <- max(0, M_hat*(1 - beta_M*age) + N(0, sigma_M^2 * age))``.
-        """
+    def degraded_map(self, M_sync: np.ndarray, delta: int | float) -> np.ndarray:
+        """Fade ``M_sync`` by absolute age Δ (no compounding off stale belief)."""
+        d = max(float(delta), 0.0)
         p = self.params
-        noise = self.rng.normal(0.0, p.sigma_M * np.sqrt(max(age, 0.0)), size=M_hat.shape)
-        M_next = M_hat * (1.0 - p.beta_M * age) + noise
-        return np.maximum(0.0, M_next)
+        R = retention(d, p.beta_M)
+        noise = self.rng.normal(0.0, p.sigma_M * np.sqrt(d), size=M_sync.shape)
+        return np.maximum(0.0, M_sync * R + noise)
 
-    def fade_map_multi(self, M_hat: np.ndarray, age: float, n_steps: int) -> np.ndarray:
-        """Apply ``n_steps`` successive one-step fades at a fixed ``age``.
+    def fade_map(self, M_sync: np.ndarray, age: float) -> np.ndarray:
+        """Alias for :meth:`degraded_map` (``M_sync`` must be last-synced truth)."""
+        return self.degraded_map(M_sync, age)
 
-        Useful when advancing the twin belief across a whole (fixed-age proxy)
-        window without executing the inner loop elsewhere.
-        """
-        M = M_hat.copy()
-        for _ in range(int(n_steps)):
-            M = self.fade_map(M, age)
-        return M
+    def fade_map_multi(self, M_sync: np.ndarray, delta: float, n_steps: int) -> np.ndarray:
+        """Apply degradation at fixed Δ (diagnostic helper)."""
+        return self.degraded_map(M_sync, delta)
 
-    # ------------------------------------------------------------------ #
-    # Ghost-position drift
-    # ------------------------------------------------------------------ #
-    def ghost_positions(self, true_pos: np.ndarray, age: float, tau: int) -> np.ndarray:
-        """Return drifted (ghost) positions of teammates for collision avoidance.
-
-        ``p_tilde = p + N(0, sigma_g^2 * age * log(1 + tau))`` applied
-        independently to each coordinate of each UAV.
-
-        Parameters
-        ----------
-        true_pos:
-            ``(U, 2)`` array of true UAV positions (grid coordinates, row/col).
-        age:
-            Current normalized AoI in [0, 1).
-        tau:
-            Current synchronization interval (steps).
-        """
+    def ghost_positions(self, true_pos: np.ndarray, age: float,
+                        tau: int | None = None) -> np.ndarray:
+        """Brownian ghost drift: variance ``σ_g² · Δ`` per coordinate."""
         p = self.params
-        var = (p.sigma_g ** 2) * max(age, 0.0) * np.log1p(max(tau, 0))
+        var = (p.sigma_g ** 2) * max(float(age), 0.0)
         std = np.sqrt(max(var, 0.0))
         return np.asarray(true_pos, dtype=float) + self.rng.normal(0.0, std, size=np.shape(true_pos))
 
-    def ghost_rmse(self, age: float, tau: int) -> float:
-        """Analytic expected ghost RMSE (2-D Euclidean) in cells.
+    def ghost_rmse(self, age: float, tau: int | None = None) -> float:
+        """Analytic 2-D Euclidean RMSE in cells: ``σ_g √(2Δ)``."""
+        return self.params.sigma_g * np.sqrt(2.0 * max(float(age), 0.0))
 
-        ``RMSE = sigma_g * sqrt(2 * age * log(1 + tau))`` because both
-        coordinates carry independent variance ``sigma_g^2 * age * log(1+tau)``.
-        """
-        p = self.params
-        return p.sigma_g * np.sqrt(2.0 * max(age, 0.0) * np.log1p(max(tau, 0)))
-
-
-# ---------------------------------------------------------------------- #
-# Calibration
-# ---------------------------------------------------------------------- #
-def calibrate_ghost_sigma(target_rmse_cells: float,
-                          tau_ref: int = 60,
-                          age_ref: float | None = None,
-                          n_mc: int = 40000,
-                          rng=None) -> float:
-    """Calibrate ``sigma_g`` so the mean ghost RMSE matches a target at ``tau_ref``.
-
-    By default the reference age is the *end-of-interval* age
-    ``age_ref = (tau_ref - 1)/tau_ref`` (worst-case staleness just before the
-    next sync), which is the natural point to size the drift budget.
-
-    A closed form exists (``sigma_g = target / sqrt(2*age*log(1+tau))``); we
-    additionally verify it with a Monte-Carlo estimate of the *empirical* RMSE
-    so the routine also works if the model is later made non-Gaussian.
-
-    Returns
-    -------
-    float
-        The calibrated ``sigma_g``.
-    """
-    if age_ref is None:
-        age_ref = (tau_ref - 1) / float(tau_ref)
-    denom = np.sqrt(2.0 * age_ref * np.log1p(tau_ref))
-    sigma_g = float(target_rmse_cells / max(denom, 1e-12))
-
-    # Monte-Carlo verification of the empirical RMSE at the calibrated value.
-    model = StalenessModel(StalenessParams(sigma_g=sigma_g), rng=rng)
-    true_pos = np.zeros((n_mc, 2))
-    ghosts = model.ghost_positions(true_pos, age_ref, tau_ref)
-    emp_rmse = float(np.sqrt(np.mean(np.sum(ghosts ** 2, axis=1))))
-    # Tiny multiplicative correction to remove finite-sample bias.
-    if emp_rmse > 1e-9:
-        sigma_g *= target_rmse_cells / emp_rmse
-    return sigma_g
+    def ghost_rmse_m(self, age: float, dx_m: float = 18.0) -> float:
+        """Ghost RMSE in metres."""
+        return self.ghost_rmse(age) * dx_m
 
 
-def calibrate_map_fade(target_retention: float,
-                       tau_ref: int = 60,
+def emit_calibration_report(out_path: Path | str | None = None,
+                          delta_ref: float = DELTA_REF,
+                          r_target: float = R_TARGET,
+                          ghost_rmse_cells: float = GHOST_RMSE_TARGET_CELLS,
+                          dx_m: float = 18.0,
+                          d_safe_m: float = 25.0) -> dict:
+    """Write calibration derivation to ``calibration_report.json``."""
+    beta_M = calibrate_beta_M(r_target, delta_ref)
+    sigma_g = calibrate_ghost_sigma(ghost_rmse_cells, delta_ref)
+    rmse_60_cells = sigma_g * np.sqrt(2.0 * delta_ref)
+    rmse_60_m = rmse_60_cells * dx_m
+
+    report = {
+        "R_target": r_target,
+        "Delta_ref": delta_ref,
+        "beta_M": beta_M,
+        "beta_M_derivation": f"beta_M = -ln({r_target}) / {delta_ref}",
+        "sigma_g": sigma_g,
+        "ghost_rmse_target_cells": ghost_rmse_cells,
+        "ghost_rmse_at_Delta_ref_cells": float(rmse_60_cells),
+        "ghost_rmse_at_Delta_ref_m": float(rmse_60_m),
+        "d_safe_m": d_safe_m,
+        "ghost_rmse_exceeds_d_safe": bool(rmse_60_m > d_safe_m),
+        "retention_at_20": retention(20, beta_M),
+        "retention_at_60": retention(delta_ref, beta_M),
+        "retention_at_160": retention(160, beta_M),
+        "kappa_at_40": float(kappa(40)),
+        "kappa_at_80": float(kappa(80)),
+        "kappa_ratio_80_40": float(kappa(80) / kappa(40)),
+        "p_out_per_class": None,  # filled by link_budget.py when available
+    }
+
+    if out_path is not None:
+        p = Path(out_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(report, indent=2))
+    return report
+
+
+# Legacy names kept for imports
+def calibrate_map_fade(target_retention: float = R_TARGET,
+                       tau_ref: int = DELTA_REF,
                        age_ref: float | None = None) -> float:
-    """Calibrate ``beta_M`` so the cumulative interval retention hits a target.
-
-    Solves ``interval_retention(beta_M, tau_ref) == target_retention`` for
-    ``beta_M`` by bisection (the retention is monotonically decreasing in
-    ``beta_M``).  This is the map-fade counterpart of ``calibrate_ghost_sigma``
-    and is what re-tunes the paper's per-step ``beta_M`` for stochastic-tau
-    operation.
-
-    ``age_ref`` is accepted for API symmetry but not required by the cumulative
-    model (the whole interval is integrated).
-    """
-    if not (0.0 < target_retention <= 1.0):
-        raise ValueError("target_retention must lie in (0, 1].")
-    lo, hi = 1e-6, 0.999999
-    for _ in range(200):
-        mid = 0.5 * (lo + hi)
-        R = interval_retention(mid, tau_ref)
-        if R > target_retention:   # too little fade -> increase beta
-            lo = mid
-        else:
-            hi = mid
-    return float(0.5 * (lo + hi))
+    return calibrate_beta_M(target_retention, tau_ref)
 
 
-def calibrate_map_noise(target_std: float, age_ref: float | None = None, tau_ref: int = 60) -> float:
-    """Calibrate ``sigma_M`` so the per-step map process-noise std hits a target.
+def calibrate_ghost_sigma_legacy(target_rmse_cells: float,
+                                 tau_ref: int = DELTA_REF,
+                                 age_ref: float | None = None,
+                                 n_mc: int = 40000,
+                                 rng=None) -> float:
+    return calibrate_ghost_sigma(target_rmse_cells, tau_ref, n_mc, rng)
 
-    The one-step process noise has std ``sigma_M * sqrt(age)``; sizing it at the
-    reference age gives ``sigma_M = target_std / sqrt(age_ref)``.
-    """
-    if age_ref is None:
-        age_ref = (tau_ref - 1) / float(tau_ref)
-    return float(target_std / np.sqrt(max(age_ref, 1e-12)))
+
+def calibrate_map_noise(target_std: float, age_ref: float | None = None,
+                        tau_ref: int = DELTA_REF) -> float:
+    d = float(age_ref if age_ref is not None else tau_ref)
+    return float(target_std / np.sqrt(max(d, 1e-12)))

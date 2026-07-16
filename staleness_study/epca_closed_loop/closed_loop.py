@@ -20,7 +20,7 @@ from epca_staleness.executor import ExecConfig, execute_plan
 from epca_staleness.iuef_em import IUEFEMOptions, build_iuef_em_plan
 from epca_staleness.planning_utils import pick_depots
 from epca_staleness.staleness import (
-    StalenessModel, StalenessParams, kappa, interval_retention,
+    StalenessModel, StalenessParams, retention,
 )
 from epca_staleness.experiments import default_params
 
@@ -86,11 +86,8 @@ class ClosedLoopResult:
     traj_snapshots: list | None = None
 
 
-def _plan_belief(W_true: np.ndarray, staleness: StalenessModel, tau_plan: float) -> np.ndarray:
-    R = interval_retention(staleness.params.beta_M, tau_plan)
-    k = float(kappa(max(tau_plan, 1.0)))
-    noise = staleness.rng.normal(0.0, staleness.params.sigma_M * np.sqrt(max(k, 0.0)), size=W_true.shape)
-    return np.maximum(0.0, W_true * R + noise)
+def _plan_belief(W_sync: np.ndarray, staleness: StalenessModel, tau_plan: float) -> np.ndarray:
+    return staleness.degraded_map(W_sync, tau_plan)
 
 
 def _run_tier2_inference(field_gt: PriorityField,
@@ -194,14 +191,14 @@ def run_closed_loop(field_gt: PriorityField | None = None,
     w_hi = field_gt.meta.get("w_hi", 3.0)
     d_safe_c = config.d_safe_m / dx
     d_near_c = config.d_near_m / dx
-    AGE_CAP = 4.0
-
     if record_snapshots:
         W_snapshots.append(W_plan.copy())
         traj_snapshots.append(positions.copy())
 
+    W_synced = W_belief.copy()
+
     for t in range(config.horizon):
-        age = min(AGE_CAP, steps_since_sync / max(tau_ref, 1.0))
+        age = steps_since_sync
 
         # --- sync decision ---
         do_sync = False
@@ -209,7 +206,7 @@ def run_closed_loop(field_gt: PriorityField | None = None,
             if config.policy is SyncPolicy.PERIODIC:
                 do_sync = steps_since_sync >= tau
             else:
-                pred_drop = 1.0 - interval_retention(staleness_params.beta_M, max(steps_since_sync, 1))
+                pred_drop = 1.0 - retention(max(steps_since_sync, 1), staleness_params.beta_M)
                 do_sync = (steps_since_sync >= config.adapt_age_steps) or \
                           (pred_drop >= config.adapt_retention_drop)
 
@@ -235,6 +232,7 @@ def run_closed_loop(field_gt: PriorityField | None = None,
                 )
                 inference_maes.append(mae)
 
+            W_synced = W_belief.copy()
             if not config.disable_staleness:
                 W_plan = _plan_belief(W_belief, staleness, tau_plan)
             else:
@@ -258,16 +256,15 @@ def run_closed_loop(field_gt: PriorityField | None = None,
                 W_snapshots.append(W_plan.copy())
                 traj_snapshots.append(positions.copy())
 
-        # Between-sync degradation of the *executed* belief (for metrics).
-        if not config.disable_staleness and steps_since_sync > 0:
-            W_exec = staleness.fade_map(W_plan, age)
+        if not config.disable_staleness:
+            W_exec = staleness.degraded_map(W_synced, age)
         else:
             W_exec = W_plan
 
         retained_fracs.append(float(np.mean(W_exec[field_gt.high_mask] >= w_hi)) if field_gt.high_mask.any() else 0.0)
 
         ghosts = (last_synced_positions if config.disable_staleness
-                  else staleness.ghost_positions(last_synced_positions, age, int(round(tau_ref))))
+                  else staleness.ghost_positions(last_synced_positions, age))
 
         for u in range(U):
             seg = paths[u]

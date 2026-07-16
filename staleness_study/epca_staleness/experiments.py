@@ -19,24 +19,27 @@ import numpy as np
 from .channel import NTNChannel, LINK_PRESETS, kappa as channel_kappa
 from .environment import build_priority_field
 from .mission import MissionConfig, MissionResult, SyncPolicy, run_mission
+from .sweep_config import TAU_SWEEP_GRID, TAU_SWEEP_QUICK
 from .staleness import (
     StalenessParams,
     calibrated_defaults,
     calibrate_ghost_sigma,
-    calibrate_map_fade,
-    interval_retention,
+    calibrate_beta_M,
+    retention,
+    kappa,
+    emit_calibration_report,
 )
 
 
 # ---------------------------------------------------------------------- #
 # Default calibrated parameters (paper baseline)
 # ---------------------------------------------------------------------- #
-def default_params(tau_ref: int = 60,
+def default_params(delta_ref: int = 60,
                    ghost_rmse_cells: float = 10.0,
                    map_retention: float = 0.60,
                    rng=None) -> StalenessParams:
   """Return calibrated degradation parameters for the reference interval."""
-  return calibrated_defaults(tau_ref=tau_ref, ghost_rmse_cells=ghost_rmse_cells,
+  return calibrated_defaults(delta_ref=delta_ref, ghost_rmse_cells=ghost_rmse_cells,
                              map_retention=map_retention, rng=rng)
 
 
@@ -91,7 +94,7 @@ def sweep_tau(link: str = "medium",
               seed_base: int = 1000) -> SweepResult:
   """Sweep mean synchronization interval and aggregate HPC / collision metrics."""
   if tau_grid is None:
-    tau_grid = np.array([15, 20, 30, 40, 50, 60, 75, 90, 110, 130], dtype=float)
+    tau_grid = np.array([5, 10, 20, 40, 80, 160, 320], dtype=float)
   if params is None:
     params = default_params()
 
@@ -395,8 +398,8 @@ def plot_calibration_curve(params: StalenessParams, out_dir: Path):
 
   from .staleness import StalenessModel
   sm = StalenessModel(params)
-  ghost_rmse = [sm.ghost_rmse((t - 1) / t, t) for t in taus]
-  retention = [interval_retention(params.beta_M, t) for t in taus]
+  ghost_rmse = [sm.ghost_rmse(t) for t in taus]
+  ret_curve = [retention(t, params.beta_M) for t in taus]
   kappas = [float(channel_kappa(t)) for t in taus]
 
   fig, axes = plt.subplots(1, 3, figsize=(12, 3.8))
@@ -408,17 +411,17 @@ def plot_calibration_curve(params: StalenessParams, out_dir: Path):
   axes[0].legend(fontsize=8)
   axes[0].grid(True, alpha=0.3)
 
-  axes[1].plot(taus, retention, "g-", lw=2)
+  axes[1].plot(taus, ret_curve, "g-", lw=2)
   axes[1].axhline(0.6, ls="--", color="gray", label="target 0.6")
   axes[1].axvline(60, ls=":", color="gray")
-  axes[1].set_xlabel(r"$\tau$ (steps)")
-  axes[1].set_ylabel("Interval retention R(τ)")
+  axes[1].set_xlabel(r"$\Delta$ (steps)")
+  axes[1].set_ylabel(r"$R(\Delta)=\exp(-\beta_M \Delta)$")
   axes[1].legend(fontsize=8)
   axes[1].grid(True, alpha=0.3)
 
   axes[2].plot(taus, kappas, "m-", lw=2)
   axes[2].set_xlabel(r"$\tau$ (steps)")
-  axes[2].set_ylabel(r"$\kappa(\tau) = (\tau-1)/(2\tau)$")
+  axes[2].set_ylabel(r"$\kappa(\tau) = (\tau-1)/2$")
   axes[2].grid(True, alpha=0.3)
 
   fig.suptitle("Staleness calibration curves", fontsize=12)
@@ -436,10 +439,9 @@ def run_full_study(out_dir: str | Path = "output",
   out_dir.mkdir(parents=True, exist_ok=True)
 
   if quick:
-    n_mc = 12
-    tau_grid = np.array([20, 40, 60, 80, 100], dtype=float)
+    tau_grid = TAU_SWEEP_QUICK
   else:
-    tau_grid = None
+    tau_grid = TAU_SWEEP_GRID
 
   params = default_params()
   summary = dict(

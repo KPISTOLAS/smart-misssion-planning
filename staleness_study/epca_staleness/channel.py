@@ -133,15 +133,11 @@ class NTNChannel:
             "mean_tau": float(np.mean(samples)),
             "std_tau": float(np.std(samples)),
             "p95_tau": float(np.percentile(samples, 95)),
-            "kappa_mean": float(np.mean((samples - 1) / (2.0 * samples))),
+            "kappa_mean": float(np.mean((samples - 1) / 2.0)),
         }
 
 
 def kappa(tau) -> np.ndarray:
-    """Normalized average Age-of-Information ``kappa(tau) = (tau-1)/(2 tau)``.
-
-    Works on scalars or arrays.  This is the closed-form time-average of the
-    saw-tooth AoI ``age(t) = (t mod tau)/tau`` over one interval.
-    """
+    """Mean AoI over one interval when age is absolute: ``(τ−1)/2``."""
     tau = np.asarray(tau, dtype=float)
-    return (tau - 1.0) / (2.0 * tau)
+    return (tau - 1.0) / 2.0
