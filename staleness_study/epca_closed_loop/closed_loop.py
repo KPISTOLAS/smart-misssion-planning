@@ -58,6 +58,7 @@ class ClosedLoopConfig:
     fusion: PriorityFusionConfig = field(default_factory=PriorityFusionConfig)
     detector: DetectorConfig = field(default_factory=DetectorConfig)
     forecaster: ForecasterConfig = field(default_factory=ForecasterConfig)
+    forecaster_mode: str = "mlp"  # mlp | persistence | ar1
     views_per_uav: int = 6
     iot_stations: int = 16
 
@@ -97,12 +98,20 @@ def _run_tier2_inference(field_gt: PriorityField,
                          forecaster: MLPForecaster,
                          rng) -> tuple[np.ndarray, np.ndarray, float]:
     """Tier-2 sensing stack -> fused W and hotspot mask."""
+    from .forecaster_baselines import predict_persistence, predict_ar1
+
     uav_batch = sample_uav_images(field_gt, positions, views_per_uav=cfg.views_per_uav, rng=rng)
     iot_seed = int(rng.integers(0, 1_000_000)) if hasattr(rng, "integers") else int(rng) + 7
     iot_batch = sample_iot_windows(field_gt, window_len=cfg.forecaster.window_len,
                                    n_stations=cfg.iot_stations, rng=iot_seed)
     dets = detector.predict(uav_batch, (field_gt.N, field_gt.M))
-    risks = forecaster.predict(iot_batch)
+    mode = (cfg.forecaster_mode or "mlp").lower()
+    if mode == "persistence":
+        risks = predict_persistence(iot_batch)
+    elif mode == "ar1":
+        risks = predict_ar1(iot_batch)
+    else:
+        risks = forecaster.predict(iot_batch)
     W_inf, high_mask, meta = fuse_priority_field(
         field_gt, dets, iot_batch.station_coords, risks, cfg.fusion,
     )

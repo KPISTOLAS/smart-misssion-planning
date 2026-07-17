@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
+from pathlib import Path
 import numpy as np
 
 from epca_sensitivity.map_generator import SyntheticMapGenerator, SyntheticMapConfig
@@ -52,6 +54,57 @@ def _evaluate_batch(batch, dets, stress_thr: float = 0.5) -> tuple[float, float,
     f1 = 2 * prec * rec / max(prec + rec, 1e-9)
     mae = float(np.mean(np.abs(pred_stress - batch.ground_truth_stress)))
     return float(prec), float(rec), float(f1), mae
+
+
+def export_per_fold_diagnostics(
+    summary: DetectorKFoldSummary,
+    out_dir: Path | str,
+) -> dict:
+    """Per-fold F1 scores, outlier flags (IQR rule), CSV export."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Aggregate per fold (mean over seeds within fold).
+    fold_f1: dict[int, list[float]] = {}
+    for fr in summary.per_fold:
+        fold_f1.setdefault(fr.fold, []).append(fr.f1)
+    fold_means = {f: float(np.mean(v)) for f, v in fold_f1.items()}
+
+    vals = np.array(list(fold_means.values()))
+    q1, q3 = np.percentile(vals, [25, 75])
+    iqr = q3 - q1
+    lo_fence = q1 - 1.5 * iqr
+    hi_fence = q3 + 1.5 * iqr
+    outliers = [f for f, m in fold_means.items() if m < lo_fence or m > hi_fence]
+
+    csv_path = out_dir / "table_detector_kfold_f1_per_fold.csv"
+    with csv_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["fold", "n_seeds_in_fold", "f1_mean", "f1_std", "outlier_flag",
+                     "global_f1_mean", "global_f1_std"])
+        for fold in sorted(fold_f1.keys()):
+            arr = np.array(fold_f1[fold])
+            w.writerow([
+                fold, len(arr), f"{arr.mean():.4f}", f"{arr.std(ddof=1):.4f}",
+                "YES" if fold in outliers else "no",
+                f"{summary.f1_mean:.4f}", f"{summary.f1_std:.4f}",
+            ])
+        w.writerow([])
+        w.writerow(["seed", "fold", "f1", "precision", "recall", "mae_stress"])
+        for fr in summary.per_fold:
+            w.writerow([fr.seed, fr.fold, f"{fr.f1:.4f}", f"{fr.precision:.4f}",
+                        f"{fr.recall:.4f}", f"{fr.mae_stress:.4f}"])
+
+    return {
+        "fold_f1_means": fold_means,
+        "outlier_folds": outliers,
+        "iqr_fence": [float(lo_fence), float(hi_fence)],
+        "csv": str(csv_path),
+        "interpretation": (
+            f"F1 variance driven by fold(s) {outliers} as outliers (IQR rule)"
+            if outliers else "No fold exceeds IQR outlier fence; variance is diffuse across folds"
+        ),
+    }
 
 
 def run_detector_kfold(n_folds: int = 5,
