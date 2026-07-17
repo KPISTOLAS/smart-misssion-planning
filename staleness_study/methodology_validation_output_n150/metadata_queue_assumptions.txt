@@ -1,0 +1,4 @@
+Packet loss 5-20%: assumption-based, TR 38.811 LEO S-band outage regimes.
+RTT 250-600 ms: assumption-based, 600 km LEO round-trip + ground segment.
+Model: kappa_eff = kappa(tau_nom) * (1 + p/(1-p)) * (1 + RTT/(tau_nom*dt)).
+tau_nom=45.0 steps, dt=1.0 s, seed=31415.

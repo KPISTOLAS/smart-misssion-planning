@@ -1,0 +1,8 @@
+condition,n_seeds,mean,std,ci95_low,ci95_high
+periodic,150,0.0993,0.0967,0.0838,0.1148
+adaptive,150,0.0413,0.0606,0.0316,0.0510
+aoi_threshold,150,0.0914,0.0820,0.0782,0.1045
+
+comparison,reference,metric,mean_diff,wilcoxon_p,cliffs_delta,fdr_p
+adaptive,periodic_coll,collision_rate,-0.0580,5.058e-12,-0.4733,1.012e-11
+aoi_threshold,periodic_coll,collision_rate,-0.0080,0.7096,0.0267,0.7096

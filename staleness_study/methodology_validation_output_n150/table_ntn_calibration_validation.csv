@@ -1,0 +1,4 @@
+split,n_points,R2,RMSE,beta_M,sigma_M,seed_notes
+train,16,0.8199,0.0520,0.008066,0.0100,points_seed=42
+held_out_test,8,0.7202,0.0689,0.008066,0.0100,holdout=poor class
+independent,8,0.6168,0.0748,0.008066,0.0100,independent_seed=999

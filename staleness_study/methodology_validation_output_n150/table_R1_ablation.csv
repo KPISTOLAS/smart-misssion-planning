@@ -1,0 +1,12 @@
+condition,n_seeds,mean,std,ci95_low,ci95_high
+iuef_em,150,100.0000,0.0000,100.0000,100.0000
+ablation_no_balance,150,100.0000,0.0000,100.0000,100.0000
+ablation_no_congestion,150,100.0000,0.0000,100.0000,100.0000
+ablation_no_priority,150,100.0000,0.0000,100.0000,100.0000
+ablation_no_astar,150,100.0000,0.0000,100.0000,100.0000
+
+comparison,reference,metric,mean_diff,wilcoxon_p,cliffs_delta,fdr_p
+ablation_no_balance,iuef_em,HPC_pct,0.0000,1,0.0000,1
+ablation_no_congestion,iuef_em,HPC_pct,0.0000,1,0.0000,1
+ablation_no_priority,iuef_em,HPC_pct,0.0000,1,0.0000,1
+ablation_no_astar,iuef_em,HPC_pct,0.0000,1,0.0000,1

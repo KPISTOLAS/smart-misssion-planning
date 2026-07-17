@@ -1,0 +1,8 @@
+forecaster,n_seeds,HPC_mean,HPC_ci95_low,HPC_ci95_high,collision_mean,inference_mae_mean,seed_base
+mlp,150,32.08,29.34,34.82,0.0044,9.9386,8000
+persistence,150,31.71,28.97,34.46,0.0079,9.7295,8000
+ar1,150,32.70,29.86,35.55,0.0053,9.7223,8000
+
+comparison,reference,wilcoxon_p,cliffs_delta,fdr_p
+persistence,mlp,0.8821,0.0133,0.8821
+ar1,mlp,0.7983,0.0267,0.8821
