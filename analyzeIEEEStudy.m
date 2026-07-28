@@ -1,14 +1,14 @@
-% ANALYZEIEEESTUDY Build publishable statistics and figures from ieeeStudyRaw.
+﻿% ANALYZESTUDY Build publishable statistics and figures from StudyRaw.
 %
 % Inputs:
-%   - ieeeStudyRaw.mat produced by runIEEEStudy.m
+%   - StudyRaw.mat produced by runStudy.m
 %
 % Outputs:
-%   - ieeeStudySummary.mat
-%   - ieeeSummaryByFleet.csv
-%   - ieeeOptimalCounts.csv
-%   - ieeeFigure_FleetScore.fig
-%   - ieeeFigure_OptimalHistogram.fig
+%   - StudySummary.mat
+%   - SummaryByFleet.csv
+%   - OptimalCounts.csv
+%   - Figure_FleetScore.fig
+%   - Figure_OptimalHistogram.fig
 
 clear;
 close all;
@@ -17,9 +17,9 @@ clc;
 projRoot = fileparts(mfilename('fullpath'));
 addpath(projRoot);
 
-inFile = fullfile(projRoot, 'ieeeStudyRaw.mat');
+inFile = fullfile(projRoot, 'StudyRaw.mat');
 if ~isfile(inFile)
-    error('Missing ieeeStudyRaw.mat. Run runIEEEStudy.m first.');
+    error('Missing StudyRaw.mat. Run runStudy.m first.');
 end
 
 S = load(inFile);
@@ -104,18 +104,19 @@ xlabel('Fleet size selected as optimal');
 ylabel('Count across scenario-seed runs');
 title('Optimal fleet-size frequency');
 
-savefig(fig1, fullfile(projRoot, 'ieeeFigure_FleetScore.fig'));
-savefig(fig2, fullfile(projRoot, 'ieeeFigure_OptimalHistogram.fig'));
+savefig(fig1, fullfile(projRoot, 'Figure_FleetScore.fig'));
+savefig(fig2, fullfile(projRoot, 'Figure_OptimalHistogram.fig'));
 
-save(fullfile(projRoot, 'ieeeStudySummary.mat'), ...
+save(fullfile(projRoot, 'StudySummary.mat'), ...
     'summaryByFleet', 'optimalCounts', 'recommendedByMean', 'keyVals', 'optPerSeed', '-v7.3');
 
 try
-    writetable(summaryByFleet, fullfile(projRoot, 'ieeeSummaryByFleet.csv'));
-    writetable(optimalCounts, fullfile(projRoot, 'ieeeOptimalCounts.csv'));
+    writetable(summaryByFleet, fullfile(projRoot, 'SummaryByFleet.csv'));
+    writetable(optimalCounts, fullfile(projRoot, 'OptimalCounts.csv'));
 catch
     warning('CSV export failed. MAT summary was saved.');
 end
 
 fprintf('Recommended fleet size by mean composite score: %d UAVs\n', recommendedByMean);
-fprintf('Saved ieeeStudySummary.mat, csv tables, and figures.\n');
+fprintf('Saved StudySummary.mat, csv tables, and figures.\n');
+

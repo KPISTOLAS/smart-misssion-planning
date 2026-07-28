@@ -1,7 +1,7 @@
-% ANALYZEIEEECOMPARATIVESTUDY Tables + figures: baselines vs priority, capacity, operability.
+﻿% ANALYZECOMPARATIVESTUDY Tables + figures: baselines vs priority, capacity, operability.
 %
-% Inputs:  ieeeComparativeRaw.mat from runIEEEComparativeStudy.m
-% Outputs: ieeeComparativeSummary.mat, CSVs, ieeeFigure_*.fig
+% Inputs:  ComparativeRaw.mat from runComparativeStudy.m
+% Outputs: ComparativeSummary.mat, CSVs, Figure_*.fig
 
 clear;
 close all;
@@ -10,9 +10,9 @@ clc;
 projRoot = fileparts(mfilename('fullpath'));
 addpath(projRoot);
 
-inFile = fullfile(projRoot, 'ieeeComparativeRaw.mat');
+inFile = fullfile(projRoot, 'ComparativeRaw.mat');
 if ~isfile(inFile)
-    error('Missing ieeeComparativeRaw.mat. Run runIEEEComparativeStudy.m first.');
+    error('Missing ComparativeRaw.mat. Run runComparativeStudy.m first.');
 end
 
 S = load(inFile);
@@ -122,19 +122,20 @@ zlabel('Mean composite score');
 title('Operability map (priority planner)');
 colorbar;
 
-savefig(figA, fullfile(projRoot, 'ieeeFigure_ComparativeComposite.fig'));
-savefig(figB, fullfile(projRoot, 'ieeeFigure_CollisionCapacity.fig'));
-savefig(figC, fullfile(projRoot, 'ieeeFigure_OperabilitySurface.fig'));
+savefig(figA, fullfile(projRoot, 'Figure_ComparativeComposite.fig'));
+savefig(figB, fullfile(projRoot, 'Figure_CollisionCapacity.fig'));
+savefig(figC, fullfile(projRoot, 'Figure_OperabilitySurface.fig'));
 
-save(fullfile(projRoot, 'ieeeComparativeSummary.mat'), ...
+save(fullfile(projRoot, 'ComparativeSummary.mat'), ...
     'G', 'satTable', 'satThr', 'M', 'centersObs', 'Ux', 'Oy', '-v7.3');
 
 try
-    writetable(G, fullfile(projRoot, 'ieeeComparativeByPlannerFleet.csv'));
-    writetable(satTable, fullfile(projRoot, 'ieeeComparativeSaturation.csv'));
+    writetable(G, fullfile(projRoot, 'ComparativeByPlannerFleet.csv'));
+    writetable(satTable, fullfile(projRoot, 'ComparativeSaturation.csv'));
 catch
     warning('CSV export failed.');
 end
 
 disp(satTable);
-fprintf('Saved ieeeComparativeSummary.mat and comparative figures.\n');
+fprintf('Saved ComparativeSummary.mat and comparative figures.\n');
+

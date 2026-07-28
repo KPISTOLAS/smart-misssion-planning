@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import matplotlib.patches as mpatches
 import numpy as np
 
 
-def _apply_ieee_style() -> None:
+def _apply__style() -> None:
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -41,7 +41,7 @@ def create_figure(out_png: Path, out_pdf: Path) -> None:
     color_congestion = "#E7A400"
     color_detour = "#0FA07A"
 
-    _apply_ieee_style()
+    _apply__style()
 
     fig, ax_left = plt.subplots(figsize=(3.6, 2.55))
     fig.patch.set_facecolor("white")
@@ -198,3 +198,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

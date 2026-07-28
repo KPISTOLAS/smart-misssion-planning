@@ -1,4 +1,4 @@
-# Algorithmic Depth and Communication Notes (IEEE Draft)
+﻿# Algorithmic Depth and Communication Notes ( Draft)
 
 ## 1) Coordination Complexity (Sketch)
 
@@ -39,3 +39,4 @@ Then total comm energy can be approximated as `E_comm ≈ P_radio * (B_up + B_do
 
 - `BatteryAwareOrchestrator` now supports `orchCfg.plannerMode` (`priority`, `greedy`, `decentralized_greedy`) for fair comparative studies.
 - `mapData.obsFrac` supports clutter-sensitive `dSafe` scaling and operability plots.
+

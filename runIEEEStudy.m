@@ -1,10 +1,10 @@
-% RUNIEEESTUDY Paper-ready experiment sweep for multi-UAV PHM-CPP.
+﻿% RUNSTUDY Paper-ready experiment sweep for multi-UAV PHM-CPP.
 %   Runs repeated orchestrated missions across terrain/tree-density/seed/fleet
 %   combinations and stores raw outputs for statistical analysis.
 %
 % Outputs:
-%   - ieeeStudyRaw.mat  (raw per-run structs)
-%   - ieeeStudyRaw.csv  (flat per-run table)
+%   - StudyRaw.mat  (raw per-run structs)
+%   - StudyRaw.csv  (flat per-run table)
 
 clear;
 close all;
@@ -96,15 +96,16 @@ end
 
 rawTbl = struct2table(rows);
 
-save(fullfile(projRoot, 'ieeeStudyRaw.mat'), ...
+save(fullfile(projRoot, 'StudyRaw.mat'), ...
     'rows', 'rawTbl', 'terrains', 'densities', 'fleetSweep', ...
     'numSeedsPerScenario', 'seedBase', 'N', 'M', 'dx', ...
     'orchOpts', 'scoreOpts', '-v7.3');
 
 try
-    writetable(rawTbl, fullfile(projRoot, 'ieeeStudyRaw.csv'));
+    writetable(rawTbl, fullfile(projRoot, 'StudyRaw.csv'));
 catch
-    warning('Could not write ieeeStudyRaw.csv. MAT file was saved successfully.');
+    warning('Could not write StudyRaw.csv. MAT file was saved successfully.');
 end
 
-fprintf('\nSaved ieeeStudyRaw.mat and ieeeStudyRaw.csv\n');
+fprintf('\nSaved StudyRaw.mat and StudyRaw.csv\n');
+

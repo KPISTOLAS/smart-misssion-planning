@@ -1,5 +1,5 @@
-classdef Analytics
-    % ANALYTICS IEEE-oriented KPIs for adaptive PHM-CPP evaluation.
+﻿classdef Analytics
+    % ANALYTICS -oriented KPIs for adaptive PHM-CPP evaluation.
 
     methods (Static)
 
@@ -204,3 +204,4 @@ classdef Analytics
         end
     end
 end
+

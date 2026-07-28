@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -66,7 +66,7 @@ def add_cell_box(ax: plt.Axes, x_values: np.ndarray, y_values: np.ndarray, x0: f
         zorder=6,
     )
     ax.add_patch(rect)
-    # IEEE-style highlighted operating point: outlined star with white halo.
+    # -style highlighted operating point: outlined star with white halo.
     ax.plot(
         x_center,
         y_center,
@@ -248,3 +248,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
