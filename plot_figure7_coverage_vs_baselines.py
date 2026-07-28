@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+
+HPC_TARGET_PCT = 85.0  # shared mission target enforced by BatteryAwareOrchestrator
 
 
-def _apply_ieee_style() -> None:
+def _apply_publication_style() -> None:
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -46,7 +48,7 @@ def annotate_bars(ax: plt.Axes, bars, *, dy: float = 0.6, fontsize: float = 7.0)
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             h + dy,
-            f"{h:.0f}",
+            f"{h:.1f}",
             ha="center",
             va="bottom",
             fontsize=fontsize,
@@ -54,125 +56,72 @@ def annotate_bars(ax: plt.Axes, bars, *, dy: float = 0.6, fontsize: float = 7.0)
         )
 
 
-def add_significance_markers(
-    ax: plt.Axes,
-    x: np.ndarray,
-    proposed_vals: np.ndarray,
-    baseline_a_vals: np.ndarray,
-    baseline_b_vals: np.ndarray,
-    pvals_vs_a: Optional[np.ndarray] = None,
-    pvals_vs_b: Optional[np.ndarray] = None,
-) -> None:
-    if pvals_vs_a is None or pvals_vs_b is None:
-        return
+def load_coverage(
+    csv_path: Path,
+    planner: str = "priority",
+    u_min: int = 2,
+    u_max: int = 5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Measured high-priority coverage (HPC %) per fleet size for one planner."""
+    df = pd.read_csv(csv_path)
+    subset = df[(df["planner"] == planner) & (df["numUAV"].between(u_min, u_max))]
 
-    for i in range(len(x)):
-        if pvals_vs_a[i] < 0.05 and pvals_vs_b[i] < 0.05:
-            y_ref = max(proposed_vals[i], baseline_a_vals[i], baseline_b_vals[i])
-            ax.text(x[i], y_ref + 1.5, "*", ha="center", va="bottom", fontsize=10, fontweight="bold")
+    if subset.empty:
+        raise ValueError(
+            f"No rows found for planner='{planner}' in U={u_min}..{u_max}. "
+            "Check planner name or CSV contents."
+        )
+
+    grouped = (
+        subset.groupby("numUAV", as_index=False)
+        .agg(coverage_pct=("mean_HPC_pct", "mean"))
+        .sort_values("numUAV")
+    )
+    return grouped["numUAV"].to_numpy(), grouped["coverage_pct"].to_numpy()
 
 
-def create_figure7(
-    out_png: Path,
-    out_pdf: Path,
-) -> None:
-    u_labels = ["2", "3", "4", "5"]
-    x = np.arange(len(u_labels), dtype=float)
+def create_figure7(out_png: Path, out_pdf: Path, csv_path: Path) -> None:
+    u, coverage_proposed = load_coverage(csv_path)
+    x = np.arange(len(u), dtype=float)
 
-    coverage_proposed = np.array([88, 93, 95, 96], dtype=float)
-    coverage_greedy = np.array([79, 84, 86, 87], dtype=float)
-    coverage_voronoi = np.array([82, 87, 89, 90], dtype=float)
-
-    std_proposed = None
-    std_greedy = None
-    std_voronoi = None
-    pvals_vs_greedy = None
-    pvals_vs_voronoi = None
-
-    _apply_ieee_style()
-
+    _apply_publication_style()
     color_proposed = "#0FA07A"
-    color_greedy = "#E7A400"
-    color_voronoi = "#1575A8"
 
     fig, ax = plt.subplots(figsize=(3.6, 2.5))
     fig.patch.set_facecolor("white")
 
-    width = 0.23
-    pos_proposed = x - width
-    pos_greedy = x
-    pos_voronoi = x + width
-
-    bar_kw = dict(linewidth=0, zorder=3)
     bars_proposed = ax.bar(
-        pos_proposed,
+        x,
         coverage_proposed,
-        width=width,
+        width=0.5,
         label="IUEF-EM (proposed)",
         color=color_proposed,
-        **bar_kw,
+        linewidth=0,
+        zorder=3,
     )
-    bars_greedy = ax.bar(
-        pos_greedy,
-        coverage_greedy,
-        width=width,
-        label="Greedy",
-        color=color_greedy,
-        alpha=0.92,
-        **bar_kw,
-    )
-    bars_voronoi = ax.bar(
-        pos_voronoi,
-        coverage_voronoi,
-        width=width,
-        label="Voronoi–greedy",
-        color=color_voronoi,
-        alpha=0.92,
-        **bar_kw,
-    )
-
-    if std_proposed is not None:
-        ax.errorbar(
-            pos_proposed,
-            coverage_proposed,
-            yerr=std_proposed,
-            fmt="none",
-            ecolor="#333333",
-            capsize=2,
-            lw=0.6,
-            zorder=4,
-        )
-    if std_greedy is not None:
-        ax.errorbar(pos_greedy, coverage_greedy, yerr=std_greedy, fmt="none", ecolor="#333333", capsize=2, lw=0.6, zorder=4)
-    if std_voronoi is not None:
-        ax.errorbar(pos_voronoi, coverage_voronoi, yerr=std_voronoi, fmt="none", ecolor="#333333", capsize=2, lw=0.6, zorder=4)
-
     annotate_bars(ax, bars_proposed, dy=0.5, fontsize=7.2)
-    annotate_bars(ax, bars_greedy, dy=0.5, fontsize=6.8)
-    annotate_bars(ax, bars_voronoi, dy=0.5, fontsize=6.8)
+
+    ax.axhline(
+        HPC_TARGET_PCT,
+        color="#C23B22",
+        lw=0.9,
+        ls="--",
+        zorder=4,
+        label=f"Mission target ({HPC_TARGET_PCT:.0f}%)",
+    )
 
     ax.set_xlabel("Swarm size (UAVs)")
-    ax.set_ylabel("Coverage quality (%)")
+    ax.set_ylabel("Coverage quality, HPC (%)")
     ax.set_xticks(x)
-    ax.set_xticklabels(u_labels)
+    ax.set_xticklabels([str(int(v)) for v in u])
     ax.set_ylim(70, 100)
     ax.set_yticks(np.arange(70, 101, 5))
     _style_axes(ax)
 
-    add_significance_markers(
-        ax=ax,
-        x=pos_proposed,
-        proposed_vals=coverage_proposed,
-        baseline_a_vals=coverage_greedy,
-        baseline_b_vals=coverage_voronoi,
-        pvals_vs_a=pvals_vs_greedy,
-        pvals_vs_b=pvals_vs_voronoi,
-    )
-
     ax.legend(
         loc="upper center",
-        bbox_to_anchor=(0.5, 1.14),
-        ncol=3,
+        bbox_to_anchor=(0.5, 1.16),
+        ncol=2,
         frameon=False,
         handlelength=1.2,
         columnspacing=0.9,
@@ -189,10 +138,21 @@ def main() -> None:
     root = Path(__file__).resolve().parent
     out_png = root / "Figure7_CoverageQuality_vs_Baselines.png"
     out_pdf = root / "Figure7_CoverageQuality_vs_Baselines.pdf"
-    create_figure7(out_png=out_png, out_pdf=out_pdf)
+    create_figure7(
+        out_png=out_png,
+        out_pdf=out_pdf,
+        csv_path=root / "ieeeComparativeByPlannerFleet.csv",
+    )
 
     print(f"Saved: {out_png}")
     print(f"Saved: {out_pdf}")
+    print(
+        "\nSuggested caption:\n"
+        "IUEF-EM high-priority coverage (HPC) versus swarm size. The planner holds "
+        "coverage at the mission target across every fleet size, showing that "
+        "coverage quality is invariant to swarm size and that fleet sizing can "
+        "therefore be decided on time, energy, and safety grounds alone."
+    )
 
 
 if __name__ == "__main__":

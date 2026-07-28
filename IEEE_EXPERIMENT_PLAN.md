@@ -1,4 +1,4 @@
-# IEEE Experiment Plan (Swarm Size Optimization)
+# Experiment Plan (Swarm Size Optimization)
 
 ## 1) Study Objective
 - Quantify the optimal UAV fleet size for adaptive PHM-CPP under safety, energy, and coverage constraints.
@@ -34,7 +34,7 @@
   - preferred: Wilcoxon signed-rank (robust), or paired t-test if normality is supported.
 - Include effect sizes (Cohen's d already approximated in summary).
 
-## 6) Figures for IEEE Paper
+## 6) Figures for the Paper
 - Fleet ranking curve: mean composite score with 95% CI (`ieeeFigure_FleetScore.fig`).
 - Histogram of optimal fleet-size frequency (`ieeeFigure_OptimalHistogram.fig`).
 - Optional additional plots from raw table:

@@ -1,4 +1,4 @@
-% RUNIEEECOMPARATIVESTUDY Gold-standard baseline comparison for IEEE narrative.
+% RUNIEEECOMPARATIVESTUDY Gold-standard baseline comparison for the study narrative.
 %   Algorithm X = PriorityPlanner hybrid under BatteryAwareOrchestrator (plannerMode 'priority').
 %   Baseline A = myopic multi-UAV greedy (BaselinePlanners.greedy).
 %   Baseline B = decentralized surrogate: nearest-depot Voronoi task assignment +

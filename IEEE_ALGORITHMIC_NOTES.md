@@ -1,4 +1,4 @@
-# Algorithmic Depth and Communication Notes (IEEE Draft)
+# Algorithmic Depth and Communication Notes
 
 ## 1) Coordination Complexity (Sketch)
 
