@@ -1,4 +1,4 @@
-% RUNIEEECOMPARATIVESTUDY Gold-standard baseline comparison for IEEE narrative.
+﻿% RUNCOMPARATIVESTUDY Gold-standard baseline comparison for  narrative.
 %   Algorithm X = PriorityPlanner hybrid under BatteryAwareOrchestrator (plannerMode 'priority').
 %   Baseline A = myopic multi-UAV greedy (BaselinePlanners.greedy).
 %   Baseline B = decentralized surrogate: nearest-depot Voronoi task assignment +
@@ -6,9 +6,9 @@
 %                (BaselinePlanners.decentralizedVoronoiGreedy).
 %
 %   Outputs:
-%     ieeeComparativeRaw.mat / ieeeComparativeRaw.csv
+%     ComparativeRaw.mat / ComparativeRaw.csv
 %
-%   Defaults are smaller than runIEEEStudy for runtime; scale up for final paper.
+%   Defaults are smaller than runStudy for runtime; scale up for final paper.
 
 clear;
 close all;
@@ -103,14 +103,15 @@ end
 
 rawTbl = struct2table(rows);
 
-save(fullfile(projRoot, 'ieeeComparativeRaw.mat'), ...
+save(fullfile(projRoot, 'ComparativeRaw.mat'), ...
     'rows', 'rawTbl', 'terrains', 'densities', 'planners', 'fleetSweep', ...
     'numSeedsPerScenario', 'seedBase', 'N', 'M', 'dx', 'orchOpts', 'scoreOpts', '-v7.3');
 
 try
-    writetable(rawTbl, fullfile(projRoot, 'ieeeComparativeRaw.csv'));
+    writetable(rawTbl, fullfile(projRoot, 'ComparativeRaw.csv'));
 catch
-    warning('Could not write ieeeComparativeRaw.csv.');
+    warning('Could not write ComparativeRaw.csv.');
 end
 
-fprintf('\nSaved ieeeComparativeRaw.mat / .csv\n');
+fprintf('\nSaved ComparativeRaw.mat / .csv\n');
+

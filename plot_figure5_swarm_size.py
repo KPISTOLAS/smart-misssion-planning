@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
@@ -70,7 +70,7 @@ def create_figure(
     out_png: Path,
     out_pdf: Path,
 ) -> None:
-    # IEEE-friendly style
+    # -friendly style
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -84,7 +84,7 @@ def create_figure(
         }
     )
 
-    # IEEE-like clean style with requested line colors.
+    # -like clean style with requested line colors.
     fig, ax = plt.subplots(figsize=(6.2, 3.5))
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
@@ -177,7 +177,7 @@ def create_figure(
 
 def main() -> None:
     root = Path(__file__).resolve().parent
-    csv_path = root / "ieeeComparativeByPlannerFleet.csv"
+    csv_path = root / "ComparativeByPlannerFleet.csv"
 
     # Use measured values when available
     u, mission_time_min, risk_index, mission_time_std, risk_std, _coverage_pct = load_measured_data(
@@ -213,3 +213,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

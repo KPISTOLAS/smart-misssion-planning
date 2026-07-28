@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def _apply_ieee_style() -> None:
+def _apply__style() -> None:
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -89,7 +89,7 @@ def create_figure7(
     pvals_vs_greedy = None
     pvals_vs_voronoi = None
 
-    _apply_ieee_style()
+    _apply__style()
 
     color_proposed = "#0FA07A"
     color_greedy = "#E7A400"
@@ -197,3 +197,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
