@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
+import pandas as pd
 
 
 def _apply_ieee_style() -> None:
@@ -27,19 +27,43 @@ def _apply_ieee_style() -> None:
     )
 
 
-def create_figure(out_png: Path, out_pdf: Path) -> None:
-    u = np.arange(1, 9)
-    energy_wh = np.array([182, 124, 101, 94, 92, 91, 91, 92], dtype=float)
-    congestion_pct = np.array([3, 6, 10, 15, 22, 30, 39, 51], dtype=float)
-    detour_pct = np.array([2, 4, 7, 11, 16, 22, 29, 37], dtype=float)
+def load_tradeoff(
+    csv_path: Path,
+    planner: str = "priority",
+    u_min: int = 1,
+    u_max: int = 8,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Measured fleet energy (MJ) and conflict rate (%) per fleet size."""
+    df = pd.read_csv(csv_path)
+    subset = df[(df["planner"] == planner) & (df["numUAV"].between(u_min, u_max))]
 
-    energy_std = None
-    congestion_std = None
-    detour_std = None
+    if subset.empty:
+        raise ValueError(
+            f"No rows found for planner='{planner}' in U={u_min}..{u_max}. "
+            "Check planner name or CSV contents."
+        )
+
+    grouped = (
+        subset.groupby("numUAV", as_index=False)
+        .agg(
+            energy_MJ=("mean_fleet_energy_MJ", "mean"),
+            conflict=("mean_any_collision", "mean"),
+        )
+        .sort_values("numUAV")
+    )
+
+    return (
+        grouped["numUAV"].to_numpy(),
+        grouped["energy_MJ"].to_numpy(),
+        grouped["conflict"].to_numpy() * 100.0,
+    )
+
+
+def create_figure(out_png: Path, out_pdf: Path, csv_path: Path) -> None:
+    u, energy_mj, conflict_pct = load_tradeoff(csv_path)
 
     color_energy = "#1575A8"
-    color_congestion = "#E7A400"
-    color_detour = "#0FA07A"
+    color_conflict = "#E7A400"
 
     _apply_ieee_style()
 
@@ -48,12 +72,15 @@ def create_figure(out_png: Path, out_pdf: Path) -> None:
     ax_left.set_facecolor("white")
     ax_right = ax_left.twinx()
 
-    # Neutral band so it does not clash with the detour (teal) line.
-    ax_left.axvspan(2.7, 4.3, color="#D9D9D9", alpha=0.45, lw=0, zorder=0)
+    # Conflict-free operating region: largest fleet sizes with zero collisions.
+    safe = u[conflict_pct <= 0]
+    u_safe_max = int(safe.max()) if safe.size else int(u.min())
+    ax_left.axvspan(u.min() - 0.2, u_safe_max + 0.3, color="#D9D9D9", alpha=0.45,
+                    lw=0, zorder=0)
     ax_left.text(
-        3.5,
+        (u.min() + u_safe_max) / 2,
         0.97,
-        "Recommended\nU = 3–4",
+        f"Conflict-free\nU \u2264 {u_safe_max}",
         transform=ax_left.get_xaxis_transform(),
         ha="center",
         va="top",
@@ -64,84 +91,26 @@ def create_figure(out_png: Path, out_pdf: Path) -> None:
     )
 
     line_kw = dict(lw=1.35, zorder=4)
-    if energy_std is not None:
-        energy_line = ax_left.errorbar(
-            u,
-            energy_wh,
-            yerr=energy_std,
-            fmt="-o",
-            color=color_energy,
-            ms=4.0,
-            capsize=2.0,
-            label="Energy per mission",
-            **line_kw,
-        )
-    else:
-        energy_line = ax_left.plot(
-            u,
-            energy_wh,
-            "-o",
-            color=color_energy,
-            ms=4.0,
-            label="Energy per mission",
-            **line_kw,
-        )[0]
-
-    if congestion_std is not None:
-        congestion_line = ax_right.errorbar(
-            u,
-            congestion_pct,
-            yerr=congestion_std,
-            fmt="-s",
-            color=color_congestion,
-            ms=3.8,
-            capsize=2.0,
-            label="Congestion overhead",
-            **line_kw,
-        )
-    else:
-        congestion_line = ax_right.plot(
-            u,
-            congestion_pct,
-            "-s",
-            color=color_congestion,
-            ms=3.8,
-            label="Congestion overhead",
-            **line_kw,
-        )[0]
-
-    if detour_std is not None:
-        detour_line = ax_right.errorbar(
-            u,
-            detour_pct,
-            yerr=detour_std,
-            fmt="--^",
-            color=color_detour,
-            ms=3.6,
-            capsize=2.0,
-            label="Detour overhead",
-            **line_kw,
-        )
-    else:
-        detour_line = ax_right.plot(
-            u,
-            detour_pct,
-            "--^",
-            color=color_detour,
-            ms=3.6,
-            label="Detour overhead",
-            **line_kw,
-        )[0]
+    energy_line = ax_left.plot(
+        u, energy_mj, "-o", color=color_energy, ms=4.0,
+        label="Fleet energy per mission", **line_kw,
+    )[0]
+    conflict_line = ax_right.plot(
+        u, conflict_pct, "-s", color=color_conflict, ms=3.8,
+        label="Conflict rate", **line_kw,
+    )[0]
 
     ax_left.set_xlabel("Swarm size (UAVs)")
-    ax_left.set_ylabel("Energy per mission (Wh)", color=color_energy)
-    ax_right.set_ylabel("Overhead (%)", color="#333333")
+    ax_left.set_ylabel("Fleet energy per mission (MJ)", color=color_energy)
+    ax_right.set_ylabel("Conflict rate (%)", color="#333333")
 
-    ax_left.set_xlim(0.8, 8.2)
+    ax_left.set_xlim(u.min() - 0.2, u.max() + 0.2)
     ax_left.set_xticks(u)
-    ax_left.set_ylim(85, 190)
-    ax_right.set_ylim(0, 55)
-    ax_right.set_yticks(np.arange(0, 56, 10))
+    e_lo = np.floor(energy_mj.min() - 0.5)
+    e_hi = np.ceil(energy_mj.max() + 0.5)
+    ax_left.set_ylim(e_lo, e_hi)
+    ax_right.set_ylim(0, 105)
+    ax_right.set_yticks(np.arange(0, 101, 20))
 
     ax_left.grid(axis="y", color="#E8E8E8", linestyle="-", linewidth=0.55, zorder=0)
     ax_left.set_axisbelow(True)
@@ -160,18 +129,20 @@ def create_figure(out_png: Path, out_pdf: Path) -> None:
     ax_right.spines["right"].set_linewidth(0.6)
 
     ax_left.tick_params(axis="x", length=3, width=0.6, colors="#333333")
-    ax_left.tick_params(axis="y", length=3, width=0.6, colors=color_energy, labelcolor=color_energy)
-    ax_right.tick_params(axis="y", length=3, width=0.6, colors="#333333", labelcolor="#333333")
+    ax_left.tick_params(axis="y", length=3, width=0.6, colors=color_energy,
+                        labelcolor=color_energy)
+    ax_right.tick_params(axis="y", length=3, width=0.6, colors="#333333",
+                         labelcolor="#333333")
 
-    band_patch = mpatches.Patch(facecolor="#D9D9D9", edgecolor="none", alpha=0.45, label="Recommended U = 3–4")
-    handles = [energy_line, congestion_line, detour_line, band_patch]
-    labels = [h.get_label() for h in handles[:3]] + ["Recommended U = 3–4"]
+    # The shaded region is labelled in-plot, so it is left out of the legend.
+    handles = [energy_line, conflict_line]
+    labels = [h.get_label() for h in handles]
 
     fig.legend(
         handles,
         labels,
         loc="upper center",
-        bbox_to_anchor=(0.5, 1.16),
+        bbox_to_anchor=(0.5, 1.10),
         ncol=2,
         frameon=False,
         handlelength=1.6,
@@ -179,7 +150,7 @@ def create_figure(out_png: Path, out_pdf: Path) -> None:
         handletextpad=0.45,
     )
 
-    fig.subplots_adjust(left=0.17, right=0.84, bottom=0.20, top=0.78)
+    fig.subplots_adjust(left=0.17, right=0.84, bottom=0.20, top=0.86)
     fig.savefig(out_png, dpi=300, facecolor="white")
     fig.savefig(out_pdf, facecolor="white")
     plt.close(fig)
@@ -190,10 +161,22 @@ def main() -> None:
     out_png = root / "Figure8_CongestionEnergy_Tradeoff.png"
     out_pdf = root / "Figure8_CongestionEnergy_Tradeoff.pdf"
 
-    create_figure(out_png=out_png, out_pdf=out_pdf)
+    create_figure(
+        out_png=out_png,
+        out_pdf=out_pdf,
+        csv_path=root / "ieeeComparativeByPlannerFleet.csv",
+    )
 
     print(f"Saved: {out_png}")
     print(f"Saved: {out_pdf}")
+    print(
+        "\nSuggested caption:\n"
+        "IUEF-EM congestion-energy trade-off versus swarm size. Total fleet energy "
+        "grows monotonically with the number of UAVs because per-agent overheads are "
+        "additive, while the conflict rate stays at zero up to U = 3 and then rises "
+        "steeply. Enlarging the fleet beyond the conflict-free region therefore costs "
+        "energy and safety without improving coverage."
+    )
 
 
 if __name__ == "__main__":

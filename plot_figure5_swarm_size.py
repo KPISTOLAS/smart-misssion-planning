@@ -10,7 +10,7 @@ import pandas as pd
 
 def load_measured_data(
     csv_path: Path,
-    planner: str = "decentralized_greedy",
+    planner: str = "priority",
     u_min: int = 1,
     u_max: int = 8,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
@@ -110,7 +110,7 @@ def create_figure(
             lw=1.4,
             ms=3.6,
             capsize=2,
-            label="Mission Time (normalized)",
+            label="Mission time (IUEF-EM)",
             zorder=3,
         )
     else:
@@ -121,7 +121,7 @@ def create_figure(
             color=color_time,
             lw=1.4,
             ms=3.6,
-            label="Mission Time (normalized)",
+            label="Mission time (IUEF-EM)",
             zorder=3,
         )[0]
 
@@ -136,7 +136,7 @@ def create_figure(
             lw=1.3,
             ms=3.4,
             capsize=2,
-            label="Collision Risk (normalized)",
+            label="Collision risk (IUEF-EM)",
             zorder=3,
         )
     else:
@@ -147,9 +147,26 @@ def create_figure(
             color=color_risk,
             lw=1.3,
             ms=3.4,
-            label="Collision Risk (normalized)",
+            label="Collision risk (IUEF-EM)",
             zorder=3,
         )[0]
+
+    # Operating point: fastest mission among the collision-free fleet sizes.
+    safe = np.flatnonzero(risk_index <= 0)
+    u_opt_idx = safe[int(np.argmin(mission_time_norm[safe]))] if safe.size else int(
+        np.argmin(mission_time_norm)
+    )
+    ax.axvline(u[u_opt_idx], color="#555555", lw=0.8, ls=":", alpha=0.75, zorder=2)
+    ax.annotate(
+        f"U = {int(u[u_opt_idx])}\nmin time,\nno conflicts",
+        xy=(u[u_opt_idx], mission_time_norm[u_opt_idx]),
+        xytext=(-30, 92),
+        textcoords="offset points",
+        fontsize=7.2,
+        color="#333333",
+        linespacing=1.15,
+        arrowprops=dict(arrowstyle="->", color="#555555", lw=0.7),
+    )
 
     ax.set_xlabel("Swarm Size (UAV count)")
     ax.set_ylabel("Normalized Metric Value (0-1)")
@@ -182,7 +199,7 @@ def main() -> None:
     # Use measured values when available
     u, mission_time_min, risk_index, mission_time_std, risk_std, _coverage_pct = load_measured_data(
         csv_path=csv_path,
-        planner="decentralized_greedy",
+        planner="priority",
         u_min=1,
         u_max=8,
     )
@@ -200,10 +217,12 @@ def main() -> None:
     )
 
     caption = (
-        "Mission performance versus swarm size (normalized for single-axis comparison). "
-        "Mission time decreases rapidly up to moderate fleet sizes, then plateaus, "
-        "while coordination risk increases with larger swarms; a sharper risk rise is "
-        "observed at larger fleet sizes."
+        "IUEF-EM mission performance versus swarm size (normalized for single-axis "
+        "comparison). Mission time falls steeply up to U = 3 and then rises again as "
+        "inter-agent contention outweighs added parallelism, while coordination risk "
+        "stays at zero through U = 3 before climbing sharply. The two curves jointly "
+        "identify U = 3 as the operating point: minimum mission time among the "
+        "collision-free fleet sizes."
     )
     print(f"Saved: {out_png}")
     print(f"Saved: {out_pdf}")
