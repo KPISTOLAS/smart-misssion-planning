@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-def _apply_ieee_style() -> None:
+def _apply_publication_style() -> None:
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -65,7 +65,7 @@ def create_figure(out_png: Path, out_pdf: Path, csv_path: Path) -> None:
     color_energy = "#1575A8"
     color_conflict = "#E7A400"
 
-    _apply_ieee_style()
+    _apply_publication_style()
 
     fig, ax_left = plt.subplots(figsize=(3.6, 2.55))
     fig.patch.set_facecolor("white")

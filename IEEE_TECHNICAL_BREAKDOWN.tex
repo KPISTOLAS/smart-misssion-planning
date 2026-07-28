@@ -1,4 +1,4 @@
-% IEEE-style technical breakdown for adaptive IoT-aware multi-UAV CPP (PHM).
+% Technical breakdown for adaptive IoT-aware multi-UAV CPP (PHM).
 % Compile with pdfLaTeX; requires amsmath, amssymb.
 
 \documentclass[conference]{IEEEtran}
@@ -17,7 +17,7 @@
 \maketitle
 
 \begin{abstract}
-This memorandum formalizes an adaptive forest monitoring scenario wherein a heterogeneous fleet of rotary-wing unmanned aerial vehicles (UAVs) exploits a digital plant-health heatmap fused from ground IoT cues. Unlike geometric lawn-mowing coverage, mission objectives emphasize revisitation of high-stress cells ($H \ge 3$) while respecting terrain-induced energetics and inter-agent safety margins. The novelty lies in coupling informative weights derived from health, epistemic uncertainty, and obstacle proximity with a hybrid planner that mixes weighted workload partitioning (DARP-inspired decomposition) with stitched receding-horizon A* segments over elevation-aware edge costs. Companion MATLAB modules instantiate terrain synthesis, planner comparison against greedy and boustrophedon baselines, and IEEE-oriented KPI analytics including area coverage rate (ACR), high-priority coverage (HPC), energy-to-information ratio, and cross-track RMSE versus a canonical sweep reference.
+This memorandum formalizes an adaptive forest monitoring scenario wherein a heterogeneous fleet of rotary-wing unmanned aerial vehicles (UAVs) exploits a digital plant-health heatmap fused from ground IoT cues. Unlike geometric lawn-mowing coverage, mission objectives emphasize revisitation of high-stress cells ($H \ge 3$) while respecting terrain-induced energetics and inter-agent safety margins. The novelty lies in coupling informative weights derived from health, epistemic uncertainty, and obstacle proximity with a hybrid planner that mixes weighted workload partitioning (DARP-inspired decomposition) with stitched receding-horizon A* segments over elevation-aware edge costs. Companion MATLAB modules instantiate terrain synthesis, planner comparison against greedy and boustrophedon baselines, and KPI analytics including area coverage rate (ACR), high-priority coverage (HPC), energy-to-information ratio, and cross-track RMSE versus a canonical sweep reference.
 \end{abstract}
 
 \section{Scenario and Grid Model}

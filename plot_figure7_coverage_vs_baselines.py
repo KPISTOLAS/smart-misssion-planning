@@ -9,7 +9,7 @@ import pandas as pd
 HPC_TARGET_PCT = 85.0  # shared mission target enforced by BatteryAwareOrchestrator
 
 
-def _apply_ieee_style() -> None:
+def _apply_publication_style() -> None:
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -84,7 +84,7 @@ def create_figure7(out_png: Path, out_pdf: Path, csv_path: Path) -> None:
     u, coverage_proposed = load_coverage(csv_path)
     x = np.arange(len(u), dtype=float)
 
-    _apply_ieee_style()
+    _apply_publication_style()
     color_proposed = "#0FA07A"
 
     fig, ax = plt.subplots(figsize=(3.6, 2.5))

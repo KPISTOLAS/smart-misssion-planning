@@ -70,7 +70,7 @@ def create_figure(
     out_png: Path,
     out_pdf: Path,
 ) -> None:
-    # IEEE-friendly style
+    # Publication-friendly style
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -84,7 +84,7 @@ def create_figure(
         }
     )
 
-    # IEEE-like clean style with requested line colors.
+    # Clean publication style with requested line colors.
     fig, ax = plt.subplots(figsize=(6.2, 3.5))
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
