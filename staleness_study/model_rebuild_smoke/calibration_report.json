@@ -1,0 +1,29 @@
+{
+  "R_target": 0.6,
+  "Delta_ref": 60,
+  "beta_M": 0.008513760396099846,
+  "beta_M_derivation": "beta_M = -ln(0.6) / 60",
+  "sigma_g": 0.913356436259122,
+  "ghost_rmse_target_cells": 10.0,
+  "ghost_rmse_at_Delta_ref_cells": 10.00531846363301,
+  "ghost_rmse_at_Delta_ref_m": 180.0957323453942,
+  "d_safe_m": 25.0,
+  "ghost_rmse_exceeds_d_safe": true,
+  "retention_at_20": 0.8434326653017492,
+  "retention_at_60": 0.6,
+  "retention_at_160": 0.2560963179232845,
+  "kappa_at_40": 19.5,
+  "kappa_at_80": 39.5,
+  "kappa_ratio_80_40": 2.0256410256410255,
+  "p_out_per_class": {
+    "good": 0.0,
+    "medium": 0.0076,
+    "poor": 0.3667
+  },
+  "gamma_th_per_class": {
+    "good": 0.0,
+    "medium": 6.0,
+    "poor": 12.0
+  },
+  "aoi_surface_finding": "link outage materially inflates mean AoI"
+}
